@@ -112,6 +112,10 @@ Returns `{ pending: null }`, or a `pending` object with `withdrawalId`, `stage`
 already posted, `registryRecorded`, and `txs` — the labelled hashes of the steps that have
 landed. Only recent, unfinished advances are offered.
 
+`registryEnabled` is returned at the top level on every call, including when there is
+nothing pending: the borrow flow reads it on mount to decide whether the optional record
+step exists in this deployment at all.
+
 `registryRecorded: false` means the record was declined or not yet attempted. It **never**
 gates resume: `borrowStage` does not consider it, because an unrecorded advance is a
 complete advance.
@@ -167,7 +171,7 @@ before marking anything repaid.
 |---|---|---|
 | `/api/markets` | GET *(public)* | Live pool reserve: supplied, borrowed, supply/borrow APR and APY, utilisation, caps, collateral and liability factors, oracle price, backstop rate, the rate curve, the ledger it was read at, and the TRY rate |
 | `/api/markets/wallet` | GET | The signed-in wallet's position in that market |
-| `/api/loans/mine` | GET | `{ loans, debt, collateral }` — rows plus live pool figures, `Cache-Control: no-store`. Each loan carries `registryRecorded`, read from the backing withdrawal's `registry_tx` |
+| `/api/loans/mine` | GET | `{ loans, debt, collateral, registryEnabled }` — rows plus live pool figures, `Cache-Control: no-store`. Each loan carries `withdrawalId` and `registryRecorded`, so the UI can offer the record after the fact; the registry key derives from the withdrawal id, not the loan id |
 | `/api/loans/[id]/health` | GET | `{ health }` from the pool. Read for the caller's own wallet; the id is for routing symmetry only |
 | `/api/loans/collateral/options` | GET *(public)* | Assets this pool accepts as collateral |
 | `/api/profile` | GET | `{ publicKey, summary, deposits, loans }` |

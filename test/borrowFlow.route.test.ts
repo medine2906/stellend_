@@ -274,4 +274,36 @@ describe("GET /api/loans/borrow/resume", () => {
     // A completed withdrawal is not in the resumable set at all.
     expect((await (await GET()).json()).pending).toBeNull();
   });
+
+  it("reports an unsigned advance record without making it a stage", async () => {
+    seedIntent({
+      collateral_tx: "a",
+      borrow_tx: "b",
+      payout_tx: "c",
+      registry_tx: null,
+    });
+    const { GET } = await import("@/app/api/loans/borrow/resume/route");
+
+    const { pending } = await (await GET()).json();
+
+    // The record is offered alongside the stage, never as one: an advance whose payout
+    // has landed is settling whether or not the borrower ever signs a receipt.
+    expect(pending.stage).toBe("settling");
+    expect(pending.registryRecorded).toBe(false);
+  });
+
+  it("lists a signed record among the advance's transactions", async () => {
+    seedIntent({
+      collateral_tx: "a",
+      borrow_tx: "b",
+      payout_tx: "c",
+      registry_tx: "registry-hash",
+    });
+    const { GET } = await import("@/app/api/loans/borrow/resume/route");
+
+    const { pending } = await (await GET()).json();
+
+    expect(pending.registryRecorded).toBe(true);
+    expect(pending.txs.map((t: { label: string }) => t.label)).toContain("Sign advance record");
+  });
 });

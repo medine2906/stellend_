@@ -40,8 +40,18 @@ interface PendingAdvance {
   collateralAsset: string | null;
   collateralAmount: number | null;
   createdAt: string;
+  registryRecorded: boolean;
   txs: TxRecord[];
 }
+
+/**
+ * The advance registry signature offered once the cash is on its way.
+ *
+ * It is deliberately not a timeline step. The advance is complete at payout; this is a
+ * receipt the borrower signs for their own benefit, so declining it has to cost them
+ * nothing. `done` keeps the card in place with a confirmation instead of hiding it.
+ */
+type RecordOffer = { withdrawalId: string; state: "offered" | "signing" | "done"; error: string | null };
 
 interface StepState {
   index: number;
@@ -60,6 +70,8 @@ export function BorrowFlow() {
   const [step, setStep] = useState<StepState>({ index: -1, failed: false, message: null });
   const [txs, setTxs] = useState<TxRecord[]>([]);
   const [pending, setPending] = useState<PendingAdvance | null>(null);
+  const [recordOffer, setRecordOffer] = useState<RecordOffer | null>(null);
+  const [registryAvailable, setRegistryAvailable] = useState(false);
   const [withdrawalStatus, setWithdrawalStatus] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const limits = useAnchorLimits();
@@ -93,8 +105,9 @@ export function BorrowFlow() {
     try {
       const res = await fetch("/api/loans/borrow/resume");
       if (!res.ok) return;
-      const { pending: found } = await res.json();
+      const { pending: found, registryEnabled } = await res.json();
       setPending(found ?? null);
+      setRegistryAvailable(Boolean(registryEnabled));
     } catch {
       // An unreachable resume check just means no offer to resume; the flow still works.
     }
@@ -154,7 +167,13 @@ export function BorrowFlow() {
    * Runs the advance from `stage` onward. Each step is skipped if it already landed,
    * so this is both the happy path (from "collateral") and the resume path.
    */
-  async function runAdvance(intent: { withdrawalId: string; stage: BorrowStage; asset: string; amount: number }) {
+  async function runAdvance(intent: {
+    withdrawalId: string;
+    stage: BorrowStage;
+    asset: string;
+    amount: number;
+    registryRecorded?: boolean;
+  }) {
     const { withdrawalId, asset, amount } = intent;
     let stage = intent.stage;
 
@@ -203,6 +222,35 @@ export function BorrowFlow() {
 
     setStep({ index: 3, failed: false, message: null });
     watchWithdrawal(withdrawalId);
+
+    // The cash is on its way; offer the on-chain receipt without holding anything up.
+    if (registryAvailable && !intent.registryRecorded) {
+      setRecordOffer({ withdrawalId, state: "offered", error: null });
+    }
+  }
+
+  /**
+   * Signs the advance registry record. Failure is shown on the card and nowhere else —
+   * the advance itself is already complete, so this must never mark the flow as failed.
+   */
+  async function signRecord() {
+    if (!recordOffer) return;
+    const { withdrawalId } = recordOffer;
+    setRecordOffer({ withdrawalId, state: "signing", error: null });
+    try {
+      const { unsignedXdr } = await postJson<{ unsignedXdr: string }>("/api/loans/borrow/record/prepare", {
+        withdrawalId,
+      });
+      const signedXdr = await signTransaction(unsignedXdr);
+      await submitTx("Sign advance record", "/api/loans/borrow/record/submit", { signedXdr, withdrawalId });
+      setRecordOffer({ withdrawalId, state: "done", error: null });
+    } catch (err) {
+      setRecordOffer({
+        withdrawalId,
+        state: "offered",
+        error: getErrorMessage(err, "Could not sign the record — your cash advance is unaffected"),
+      });
+    }
   }
 
   async function startBorrow() {
@@ -241,6 +289,11 @@ export function BorrowFlow() {
       if (pending.stage === "settling") {
         setStep({ index: 3, failed: false, message: null });
         watchWithdrawal(pending.withdrawalId);
+        // Everything is signed and the anchor is paying out, so the only thing left to
+        // offer is the record itself.
+        if (registryAvailable && !pending.registryRecorded) {
+          setRecordOffer({ withdrawalId: pending.withdrawalId, state: "offered", error: null });
+        }
         return;
       }
       await runAdvance({
@@ -248,6 +301,7 @@ export function BorrowFlow() {
         stage: pending.stage,
         asset: pending.collateralAsset ?? selected?.id ?? collateralAsset,
         amount: pending.collateralAmount ?? Number(collateralAmount),
+        registryRecorded: pending.registryRecorded,
       });
       setPending(null);
     } catch (err) {
@@ -379,6 +433,42 @@ export function BorrowFlow() {
           <StatusTimeline steps={STEPS} currentIndex={step.index} failed={step.failed} />
           {step.message && <p className="mt-3 text-sm text-danger">{step.message}</p>}
           {withdrawalStatus && <p className="mt-3 text-xs text-muted">Transfer status: {withdrawalStatus}</p>}
+        </div>
+      )}
+
+      {recordOffer && (
+        <div className="inset p-4 flex flex-col gap-2">
+          {recordOffer.state === "done" ? (
+            <>
+              <p className="text-sm font-medium text-ok">Your record is on-chain</p>
+              <p className="text-xs text-muted">
+                Signed by your wallet, so it is yours — we cannot change or remove it.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium text-fg">Keep your own copy of this advance</p>
+              <p className="text-xs text-muted">
+                Sign a record of what you just agreed to — the amounts and the date you are aiming for — and it is
+                written on-chain under your own key. We keep our copy in a database we control; this one we cannot
+                touch. It moves no money and is not part of the advance, which is already done.
+              </p>
+              {recordOffer.error && <p className="text-xs text-warn">{recordOffer.error}</p>}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => void signRecord()}
+                  disabled={recordOffer.state === "signing"}
+                  className="ui-button ui-button-primary"
+                >
+                  {recordOffer.state === "signing" ? "Signing…" : "Sign the record"}
+                </button>
+                <button onClick={() => setRecordOffer(null)} disabled={recordOffer.state === "signing"} className="ui-button">
+                  Not now
+                </button>
+              </div>
+              <p className="text-xs text-faint">You can sign it later from your cash advances list.</p>
+            </>
+          )}
         </div>
       )}
       <TxLinks txs={txs} />

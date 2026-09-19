@@ -3,6 +3,7 @@ import { getSession } from "@/lib/session";
 import { getUserPoolPosition, getUserUsdcPosition } from "@/lib/blend";
 import { dailyInterest, dropUntilLiquidation, positionRisk } from "@/lib/liquidity";
 import { getOrCreateProfileId } from "@/lib/profiles";
+import { registryEnabled } from "@/lib/registry";
 import { getSupabaseServiceClient } from "@/lib/supabase";
 import { getErrorMessage } from "@/lib/errors";
 
@@ -70,26 +71,34 @@ export async function GET() {
     // Whether an advance has an on-chain receipt is recorded on its withdrawal row. Read as
     // its own query rather than an embedded select: the hand-written Database type declares
     // no relationships, so an embed comes back untyped.
-    const receipts = new Map<string, string | null>();
+    // The withdrawal id travels with the loan because the registry key is derived from it,
+    // not from the loan id — without it the UI cannot offer to sign a record after the fact.
+    const receipts = new Map<string, { withdrawalId: string; registryTx: string | null }>();
     const loanIds = (loans ?? []).map((l) => l.id);
     if (loanIds.length > 0) {
       const { data: withdrawals, error: receiptsError } = await supabase
         .from("withdrawals")
-        .select("loan_id, registry_tx")
+        .select("id, loan_id, registry_tx")
         .in("loan_id", loanIds);
       if (receiptsError) throw receiptsError;
       for (const w of withdrawals ?? []) {
-        if (w.loan_id) receipts.set(w.loan_id, w.registry_tx);
+        if (w.loan_id) receipts.set(w.loan_id, { withdrawalId: w.id, registryTx: w.registry_tx });
       }
     }
 
-    const loansWithRegistry = (loans ?? []).map((loan) => ({
-      ...loan,
-      registryRecorded: Boolean(receipts.get(loan.id)),
-    }));
+    const loansWithRegistry = (loans ?? []).map((loan) => {
+      const receipt = receipts.get(loan.id);
+      return {
+        ...loan,
+        withdrawalId: receipt?.withdrawalId ?? null,
+        registryRecorded: Boolean(receipt?.registryTx),
+      };
+    });
 
     return NextResponse.json(
-      { loans: loansWithRegistry, debt, collateral },
+      // With no contract configured the client hides the whole feature rather than
+      // offering an action that would answer 404.
+      { loans: loansWithRegistry, debt, collateral, registryEnabled: registryEnabled() },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (err) {

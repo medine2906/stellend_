@@ -55,12 +55,16 @@ with a recommendation, unit economics, and what has to be true for any of it to 
 
 ## Open items the docs call out
 
-Found while writing these pages, recorded rather than silently fixed:
+Gaps the docs name rather than paper over:
 
-- The `SESSION_COOKIE_SECRET` comment in [../.env.example](../.env.example) says the
-  session cookie is HMAC-signed; it is AES-256-GCM encrypted
-  ([ARCHITECTURE.md](ARCHITECTURE.md#session-and-identity)).
-- The `advance-registry` test suite calls `count` and a paged `list` that `lib.rs` does not
-  define, so `cargo test` will not compile
-  ([CONTRACT-ADVANCE-REGISTRY.md](CONTRACT-ADVANCE-REGISTRY.md#build-and-test)).
-- `NEXT_PUBLIC_ADVANCE_REGISTRY_ID` is published in `.env.example` but no code reads it.
+- **The registry has no read path.** `get`, `list`, `count` and `is_overdue` are called
+  from nowhere, so a borrower cannot see the record that exists for their benefit
+  ([CONTRACT-ADVANCE-REGISTRY.md](CONTRACT-ADVANCE-REGISTRY.md#what-is-still-missing)).
+- **Nothing reconciles `registry_tx` against the chain.** It is written on submit and never
+  re-checked; loans get a keeper, registry records do not
+  ([DATA-MODEL.md](DATA-MODEL.md#the-registry-columns-are-a-cache-of-a-cache)).
+- **`due_at` is read at signing time.** Editing a loan row afterwards silently diverges the
+  UI from the on-chain commitment.
+
+Earlier items — the stale `SESSION_COOKIE_SECRET` comment, the contract tests that would
+not compile, and the unused `NEXT_PUBLIC_ADVANCE_REGISTRY_ID` — have all been fixed.

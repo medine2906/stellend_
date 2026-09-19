@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { borrowStage } from "@/lib/borrowIntent";
 import { getOrCreateProfileId } from "@/lib/profiles";
+import { registryEnabled } from "@/lib/registry";
 import { getSupabaseServiceClient } from "@/lib/supabase";
 import { getErrorMessage } from "@/lib/errors";
 
@@ -35,12 +36,17 @@ export async function GET() {
     if (error) throw error;
 
     const intent = rows?.[0];
-    if (!intent) return NextResponse.json({ pending: null });
+    // Sent even when there is nothing to resume: the borrow flow reads it on mount to
+    // decide whether the optional registry step exists at all in this deployment.
+    const registry = registryEnabled();
+
+    if (!intent) return NextResponse.json({ pending: null, registryEnabled: registry });
 
     const stage = borrowStage(intent);
-    if (stage === "done") return NextResponse.json({ pending: null });
+    if (stage === "done") return NextResponse.json({ pending: null, registryEnabled: registry });
 
     return NextResponse.json({
+      registryEnabled: registry,
       pending: {
         withdrawalId: intent.id,
         stage,

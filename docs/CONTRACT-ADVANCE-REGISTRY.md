@@ -2,11 +2,12 @@
 
 Source: [../contracts/advance-registry/src/lib.rs](../contracts/advance-registry/src/lib.rs)
 
-> **Status: not wired into the app.** A deployed contract id is published as
-> `NEXT_PUBLIC_ADVANCE_REGISTRY_ID` in [../.env.example](../.env.example), but no code
-> under `app/`, `lib/` or `components/` reads it — nothing calls this contract yet. It is
-> a Rust workspace that builds beside the web app. See
-> [Before this ships](#before-this-ships).
+> **Status: deployed on testnet and called by the server.** [../lib/registry.ts](../lib/registry.ts)
+> builds the transactions, [../lib/txguard.ts](../lib/txguard.ts) verifies them, and four
+> routes expose them — see [API.md](API.md#post-apiloansborrowrecordpreparesubmit--step-6-optional).
+> The feature is gated on `NEXT_PUBLIC_ADVANCE_REGISTRY_ID`; with no contract id those
+> routes answer 404 and the step does not exist. See
+> [What is still missing](#what-is-still-missing).
 
 ## Why it exists
 
@@ -63,10 +64,14 @@ covers. That is the whole trick: verifiability without publication.
 | Function | Auth | Behaviour |
 |---|---|---|
 | `open(borrower, id, usdc_amount, try_amount, payout_ref, due_at)` | `borrower` | Records a new advance. Errors on a duplicate id, a non-positive amount, or a `due_at` in the past or more than ~1 year ahead. Emits `Opened` |
-| `mark_repaid(id)` | the record's own `borrower` | Flips `Open` → `Repaid`, once. Emits `Repaid` |
-| `get(id)` | none | The record. Reading extends its TTL |
-| `is_overdue(id)` | none | `true` only for an `Open` record past its `due_at`. Reporting only |
-| `list(borrower)` | none | That borrower's advance ids, oldest first. Empty for an unknown account rather than an error |
+| `mark_repaid(borrower, id)` | `borrower` | Flips `Open` → `Repaid`, once. Emits `Repaid` |
+| `get(borrower, id)` | none | The record. Reading extends its TTL |
+| `is_overdue(borrower, id)` | none | `true` only for an `Open` record past its `due_at`. Reporting only |
+| `count(borrower)` | none | How many advances this borrower has opened. `0` for an unknown account |
+| `list(borrower, start, limit)` | none | A page of that borrower's ids, oldest first. `limit` is clamped to `MAX_PAGE` (100); a window running off the end stops at the end, and a start past the end is empty, not an error |
+
+Every function takes `borrower` explicitly, including the read paths, because the record is
+keyed by `(borrower, id)` rather than by `id` alone — see [Storage](#storage-and-ttl).
 
 ### Errors
 
@@ -84,9 +89,32 @@ covers. That is the whole trick: verifiability without publication.
 `Repaid { borrower (topic), id }`. `borrower` is a topic so an indexer can follow one
 account without replaying the whole ledger.
 
+## How the ids are derived
+
+Both hashes live in [../lib/registry.ts](../lib/registry.ts) and are **compatibility
+surfaces**: their output is written to an immutable on-chain record, so changing either one
+orphans every record already written.
+
+```
+advance_id  = sha256("stellend-advance-v1|" + withdrawalId)
+payout_ref  = sha256("stellend-payout-v1|" + anchorRef + "|" + normalizeIban(iban))
+```
+
+The domain prefixes keep the two from ever colliding, and version them for the day one has
+to change. Two consequences worth stating out loud:
+
+- **`payout_ref` depends on `normalizeIban`.** That function's output is therefore part of
+  the contract surface too. If its normalisation changes — a stripped space, a case rule —
+  borrowers can no longer reproduce the hash for old records, and the proof stops working.
+  Any change there has to be coordinated with this hash, or versioned past it.
+- **Determinism is what makes retries safe.** A retried step 6 rebuilds the same
+  `advance_id`, the contract answers `AlreadyExists`, and the flow treats that as success:
+  the record we wanted is already there. [../test/registry.test.ts](../test/registry.test.ts)
+  pins both with fixed vectors for exactly this reason.
+
 ## Idempotency
 
-`id` is chosen by the caller and must be unique. Stellend would derive it from the borrow
+`id` is chosen by the caller and must be unique. Stellend derives it from the borrow
 intent, which makes a retried submission fail with `AlreadyExists` rather than writing a
 second record for the same advance. This mirrors how the web flow already treats retries
 (see [ARCHITECTURE.md](ARCHITECTURE.md#resuming-an-interrupted-advance)) — retry is safe,
@@ -94,8 +122,28 @@ duplication is not.
 
 ## Storage and TTL
 
-One persistent entry per advance keyed by id, plus one persistent index per borrower. Both
-are TTL-extended on **every write and every read**:
+Records are keyed by **`(borrower, id)`**, not by `id` alone:
+
+```rust
+enum DataKey {
+    Advance(Address, BytesN<32>),  // the record itself
+    Count(Address),                // how many this borrower has opened
+    At(Address, u32),              // their n-th id, oldest first
+}
+```
+
+Two decisions are buried in those three lines:
+
+- **Namespacing by borrower makes id squatting impossible.** Without it, a third party
+  could open a record under a guessed id and block the real borrower from ever recording
+  their advance. The ids are unguessable anyway — but construction is stronger than
+  entropy, and the test suite pins the behaviour
+  (`a_different_borrower_cannot_squat_an_id`).
+- **The index is `Count` + `At(n)`, not a growing `Vec`.** Appending costs the same on a
+  borrower's hundredth advance as on their first, and a read is bounded by the page size
+  instead of by their whole history.
+
+Entries are TTL-extended on **every write and every read**:
 
 ```rust
 const TTL_THRESHOLD: u32 = 518_400;    // ~30 days of ~5s ledgers
@@ -118,24 +166,30 @@ The release profile is tuned for Wasm size: `opt-level = "z"`, `lto`, `panic = "
 symbols stripped — with `overflow-checks = true` kept on, because a silently wrapping
 `i128` in a money record is worse than a panic.
 
-> **The test suite does not currently match the contract.**
-> [../contracts/advance-registry/src/test.rs](../contracts/advance-registry/src/test.rs)
-> calls `client.count(&addr)` and a paged `client.list(&addr, &offset, &limit)`, including
-> a case asserting that a `u32::MAX` limit is clamped. `lib.rs` defines neither — its
-> `list` takes only `borrower` and returns every id. `cargo test` will not compile until
-> one side catches up. Adding `count` and a clamped, paged `list` is the reading the tests
-> imply, and it is the safer one: an unbounded index read is a real cost risk as a
-> borrower's history grows.
+13 unit tests, each with a recorded snapshot under `test_snapshots/`. Both jobs run in CI
+([../.github/workflows/ci.yml](../.github/workflows/ci.yml)): `cargo test` natively, and
+`stellar contract build` for the Wasm artifact — the latter cannot be a plain
+`cargo build --target wasm32v1-none`, because soroban-sdk 28 refuses to build a contract
+unless stellar-cli 25.2+ drives it.
 
-## Before this ships
+Deploying a fresh instance: [../scripts/deploy-registry.sh](../scripts/deploy-registry.sh)
+(needs stellar-cli 25.2+ and `STELLAR_ACCOUNT` set to a funded testnet identity).
 
-1. Reconcile `list`/`count` with the tests above.
-2. Confirm the id in `NEXT_PUBLIC_ADVANCE_REGISTRY_ID` is the build you intend to use, and
-   read it through [../lib/env.ts](../lib/env.ts) like every other configured value.
-3. Wire `open` into the borrow flow — one more signature, at the end, after the payout
-   lands. Budget for the fact that it is a fourth prompt for the borrower to approve.
-4. Wire `mark_repaid` into the repay flow.
-5. Decide what `payout_ref` hashes over, exactly, and document it — a proof is only useful
-   if the borrower can reproduce the input.
+## What is still missing
 
-None of that is done. Today the contract is a well-tested idea sitting next to the app.
+The write path is complete, end to end: the server builds and verifies both transactions,
+and the UI offers them — after payout in `BorrowFlow`, and later from `LoansList`, which
+also offers `mark_repaid` on a repaid advance. What is not:
+
+1. **A read path.** `get`, `list`, `count` and `is_overdue` are not called from anywhere —
+   there is no `GET` under `/api/loans/[id]/registry/`. What the borrower sees is our
+   cached `registry_tx` flag, not the record itself, which is most of the point of having
+   it. Until that exists, the contract proves the advance to a *third party* but not yet
+   to the borrower in our own UI.
+2. **Nothing reconciles the cache against the chain.** `registry_tx` is written when we
+   submit and never re-checked. A record opened outside our UI, or a row lost in a restore,
+   would leave the two disagreeing with no keeper to notice — unlike loans, which
+   `/api/keeper/sync-loans` reconciles.
+3. **`due_at` is read from the loan row at signing time.** If that row is ever edited after
+   an advance is recorded, the on-chain commitment and the UI diverge permanently. The
+   chain is right; nothing currently detects the divergence.

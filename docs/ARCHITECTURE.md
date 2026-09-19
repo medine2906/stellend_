@@ -174,6 +174,13 @@ stateDiagram-v2
 stage that matters most is `payout`: the USDC is borrowed but has not reached the anchor,
 so the borrower has debt and no cash. Losing that state would lose their money.
 
+**The advance registry is deliberately outside this machine.** Signing the on-chain record
+is a sixth step, but it is not a stage: `borrowStage` never looks at `registry_tx`, so an
+unrecorded advance is `done` like any other. The resume payload carries `registryRecorded`
+alongside the stage, and the UI offers the signature without blocking on it. The reasoning
+is that the record exists for the borrower's benefit, so refusing it must cost them
+nothing — the moment it gates anything, it stops being a receipt and becomes a hurdle.
+
 ## Module map
 
 | Path | Responsibility |
@@ -187,6 +194,7 @@ so the borrower has debt and no cash. Losing that state would lose their money.
 | [../lib/session.ts](../lib/session.ts) | AES-256-GCM session cookie carrying the anchor bearer token |
 | [../lib/liquidity.ts](../lib/liquidity.ts) | Pure functions: utilisation caps, loan timing, position risk |
 | [../lib/borrowIntent.ts](../lib/borrowIntent.ts) | Loads the intent row and derives the resume stage |
+| [../lib/registry.ts](../lib/registry.ts) | Advance registry: the feature gate, the two content-addressed hashes, and the `open`/`mark_repaid` builders |
 | [../lib/profile.ts](../lib/profile.ts) | Summarises a wallet's position; reconciles stale loan rows |
 | [../lib/ratelimit.ts](../lib/ratelimit.ts), [../lib/audit.ts](../lib/audit.ts) | In-process rate limiting; security audit trail |
 | [../supabase/](../supabase/) | Schema and migrations for the off-chain index |

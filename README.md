@@ -174,8 +174,15 @@ from the borrow intent and checked by [lib/txguard.ts](lib/txguard.ts) before su
 The whole feature is gated on `NEXT_PUBLIC_ADVANCE_REGISTRY_ID` — with no contract id
 configured the routes answer 404 and the step simply does not exist.
 
-Recording is **optional and never a gate**: the advance is complete at payout. A borrower
-who declines, or closes the tab, can sign it later; nothing downstream reads it.
+Recording is **optional and never a gate**: the advance is complete at payout. The UI
+offers the signature once the cash is on its way ([components/BorrowFlow.tsx](components/BorrowFlow.tsx))
+and again, later, from the advances list ([components/LoansList.tsx](components/LoansList.tsx)),
+which also offers `mark_repaid` once an advance is repaid. Declining costs the borrower
+nothing and `borrowStage` never looks at it — the moment a receipt gates something, it
+stops being a receipt.
+
+Still missing: nothing *reads* the contract. `get`, `list` and `count` are uncalled, so a
+borrower sees our cached "recorded" flag rather than the chain itself.
 
 Build, test and deploy it:
 
