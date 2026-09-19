@@ -50,6 +50,9 @@
               "function_name": "mark_repaid",
               "args": [
                 {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
                   "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
                 }
               ]
@@ -82,6 +85,9 @@
                 "vec": [
                   {
                     "symbol": "Advance"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                   },
                   {
                     "bytes": "0101010101010101010101010101010101010101010101010101010101010101"

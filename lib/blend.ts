@@ -49,21 +49,16 @@ export class RestoreRequiredError extends Error {
 }
 
 /**
- * Builds an unsigned, simulation-prepared Soroban transaction for a Blend
- * pool `submit` call. The caller (a connected wallet, via Stellar Wallets
- * Kit) signs the returned XDR client-side; nothing here ever touches a
- * private key.
+ * Simulates a single-operation Soroban transaction, assembles the final XDR
+ * (filling in auth entries, resource fees, and footprint), and returns it ready
+ * for signing. If the simulation reports expired ledger entries it throws
+ * {@link RestoreRequiredError} instead; the caller should restore and retry.
  *
- * @throws {RestoreRequiredError} if the simulation reports expired ledger
- * entries that must be restored before this operation can run.
+ * This is the shared plumbing for every Soroban prepare route in the app.
+ * Classic operations (payment, changeTrust) do not go through here.
  */
-async function buildSubmitTransaction(account: string, requests: Request[]): Promise<string> {
+export async function prepareSorobanTransaction(account: string, operation: xdr.Operation): Promise<string> {
   const server = getRpcServer();
-  const pool = getPoolContract();
-
-  const opXdr = pool.submit({ from: account, spender: account, to: account, requests });
-  const operation = xdr.Operation.fromXDR(opXdr, "base64");
-
   const sourceAccount = await server.getAccount(account);
   const tx = new TransactionBuilder(sourceAccount as unknown as Account, {
     fee: SOROBAN_FEE,
@@ -93,6 +88,22 @@ async function buildSubmitTransaction(account: string, requests: Request[]): Pro
 
   const prepared = rpc.assembleTransaction(tx, sim).build();
   return prepared.toXDR();
+}
+
+/**
+ * Builds an unsigned, simulation-prepared Soroban transaction for a Blend
+ * pool `submit` call. The caller (a connected wallet, via Stellar Wallets
+ * Kit) signs the returned XDR client-side; nothing here ever touches a
+ * private key.
+ *
+ * @throws {RestoreRequiredError} if the simulation reports expired ledger
+ * entries that must be restored before this operation can run.
+ */
+async function buildSubmitTransaction(account: string, requests: Request[]): Promise<string> {
+  const pool = getPoolContract();
+  const opXdr = pool.submit({ from: account, spender: account, to: account, requests });
+  const operation = xdr.Operation.fromXDR(opXdr, "base64");
+  return prepareSorobanTransaction(account, operation);
 }
 
 /**

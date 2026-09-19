@@ -111,11 +111,19 @@ Shipped and working (testnet):
   the term-loan fiction.
 - CI running typecheck, lint, tests and build.
 
-Written but not shipped:
+Built since this PRD was drafted, and not yet reachable by a user:
 
-- **`contracts/advance-registry`** — a Soroban contract recording each advance under the
-  borrower's own authorisation, with a full test suite. Uncommitted, not deployed, not
-  referenced anywhere in the application. Epic 2 finishes it.
+- **The advance registry back end.** The contract is deployed to testnet, `lib/registry.ts`
+  derives the deterministic advance id and the hashed payout reference, four prepare/submit
+  routes exist, `lib/txguard.ts` guards `open` and `mark_repaid`, and `resume` reports
+  `registryRecorded` without gating the advance on it. What is missing is the entire product
+  surface: no component calls any of those routes, so no borrower can sign a record.
+  See [EPICS-AND-STORIES.md](EPICS-AND-STORIES.md) — Epic 2 is now the UI half only.
+
+- **A red build.** `npm run typecheck` and `npm test` both fail on the new work — a duplicate
+  `USDC` binding stops `test/txguard.test.ts` transforming at all, so the new registry guard
+  tests have never executed, and BigInt literals exceed the `ES2017` target. Until this is
+  fixed, "tested" is not a claim this repository can make.
 
 Not built at all: any revenue mechanism, any explicit consent gate, any partner-facing
 integration documentation.
@@ -280,8 +288,10 @@ Any number we report from testnet is theatre, and a partner will know it.
 Listed because they are unresolved, not because they are rhetorical. Each has an owner
 outside this document.
 
-1. **`due_at`: commitment or fiction?** Epic 2 cannot ship until the contract and the UI tell
-   the same story. *Blocking FR-2.3.*
+1. ~~**`due_at`: commitment or fiction?**~~ **Closed.** Resolved in
+   [ARCHITECTURE-advance-registry.md](ARCHITECTURE-advance-registry.md): it is a target close
+   date the borrower commits to, explicitly not a deadline anything enforces, and the signing
+   prompt says so. FR-2.3 is unblocked.
 2. **Is the record step worth the friction?** It adds a fifth signature to an already long
    flow. FR-2.4 makes it optional and non-blocking, which is the cheapest way to find out —
    but if adoption is near zero, folding it into the payout transaction or dropping it are

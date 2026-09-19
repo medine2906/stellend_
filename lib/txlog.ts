@@ -1,6 +1,7 @@
 import { getOrCreateProfileId } from "@/lib/profiles";
 import { getSupabaseServiceClient } from "@/lib/supabase";
 
+
 export type TxKind =
   | "restore"
   | "trustline"
@@ -10,7 +11,9 @@ export type TxKind =
   | "repay"
   | "collateral_release"
   | "supply"
-  | "pool_withdraw";
+  | "pool_withdraw"
+  | "registry_open"
+  | "registry_close";
 
 /**
  * Records a submitted on-chain transaction so it shows up in the user's history.

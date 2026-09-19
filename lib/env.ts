@@ -10,6 +10,8 @@ const envSchema = z.object({
   NEXT_PUBLIC_SOROBAN_RPC_URL: z.string().default("https://soroban-testnet.stellar.org"),
   NEXT_PUBLIC_BLEND_POOL_ID: z.string().optional(),
   NEXT_PUBLIC_USDC_CONTRACT_ID: z.string().optional(),
+  /** Advance registry contract. When absent the registry feature is disabled. */
+  NEXT_PUBLIC_ADVANCE_REGISTRY_ID: z.string().optional(),
   SESSION_COOKIE_SECRET: z.string().default("change-me-in-production"),
   CRON_SECRET: z.string().optional(),
 });
@@ -32,6 +34,7 @@ export const env: z.infer<typeof envSchema> = new Proxy({} as z.infer<typeof env
         NEXT_PUBLIC_SOROBAN_RPC_URL: process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org",
         NEXT_PUBLIC_BLEND_POOL_ID: process.env.NEXT_PUBLIC_BLEND_POOL_ID,
         NEXT_PUBLIC_USDC_CONTRACT_ID: process.env.NEXT_PUBLIC_USDC_CONTRACT_ID,
+        NEXT_PUBLIC_ADVANCE_REGISTRY_ID: process.env.NEXT_PUBLIC_ADVANCE_REGISTRY_ID,
         SESSION_COOKIE_SECRET: process.env.SESSION_COOKIE_SECRET || "change-me-in-production",
         CRON_SECRET: process.env.CRON_SECRET,
       });

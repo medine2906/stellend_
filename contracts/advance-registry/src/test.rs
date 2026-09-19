@@ -53,7 +53,7 @@ fn open_records_what_the_borrower_signed() {
         &due,
     );
 
-    let stored = f.client.get(&advance_id);
+    let stored = f.client.get(&f.borrower, &advance_id);
     assert_eq!(stored.borrower, f.borrower);
     assert_eq!(stored.usdc_amount, USDC);
     assert_eq!(stored.try_amount, TRY);
@@ -98,6 +98,26 @@ fn an_id_can_only_be_used_once() {
         .try_open(&f.borrower, &advance_id, &USDC, &TRY, &id(&f.env, 9), &due);
     assert_eq!(again, Err(Ok(Error::AlreadyExists)));
 
+    assert_eq!(f.client.count(&f.borrower), 1);
+}
+
+#[test]
+fn a_different_borrower_cannot_squat_an_id() {
+    let f = setup();
+    let squatter = Address::generate(&f.env);
+    let advance_id = id(&f.env, 1);
+    let due = f.env.ledger().timestamp() + 30 * DAY;
+
+    // Squatter opens under the same id but a different address — separate namespace.
+    f.client
+        .open(&squatter, &advance_id, &USDC, &TRY, &id(&f.env, 9), &due);
+
+    // The real borrower's open must still succeed; their namespace is untouched.
+    f.client
+        .open(&f.borrower, &advance_id, &USDC, &TRY, &id(&f.env, 9), &due);
+
+    // Both records exist independently.
+    assert_eq!(f.client.count(&squatter), 1);
     assert_eq!(f.client.count(&f.borrower), 1);
 }
 
@@ -165,11 +185,11 @@ fn marking_repaid_closes_the_record_once() {
         &(f.env.ledger().timestamp() + 30 * DAY),
     );
 
-    f.client.mark_repaid(&advance_id);
-    assert_eq!(f.client.get(&advance_id).status, Status::Repaid);
+    f.client.mark_repaid(&f.borrower, &advance_id);
+    assert_eq!(f.client.get(&f.borrower, &advance_id).status, Status::Repaid);
 
     assert_eq!(
-        f.client.try_mark_repaid(&advance_id),
+        f.client.try_mark_repaid(&f.borrower, &advance_id),
         Err(Ok(Error::NotOpen))
     );
 }
@@ -182,10 +202,10 @@ fn a_repaid_advance_is_never_overdue() {
     f.client
         .open(&f.borrower, &advance_id, &USDC, &TRY, &id(&f.env, 9), &due);
 
-    f.client.mark_repaid(&advance_id);
+    f.client.mark_repaid(&f.borrower, &advance_id);
     f.env.ledger().set_timestamp(due + DAY);
 
-    assert!(!f.client.is_overdue(&advance_id));
+    assert!(!f.client.is_overdue(&f.borrower, &advance_id));
 }
 
 #[test]
@@ -196,25 +216,25 @@ fn overdue_flips_only_after_the_committed_date() {
     f.client
         .open(&f.borrower, &advance_id, &USDC, &TRY, &id(&f.env, 9), &due);
 
-    assert!(!f.client.is_overdue(&advance_id));
+    assert!(!f.client.is_overdue(&f.borrower, &advance_id));
 
     f.env.ledger().set_timestamp(due);
-    assert!(!f.client.is_overdue(&advance_id), "due exactly now is not late");
+    assert!(!f.client.is_overdue(&f.borrower, &advance_id), "due exactly now is not late");
 
     f.env.ledger().set_timestamp(due + 1);
-    assert!(f.client.is_overdue(&advance_id));
+    assert!(f.client.is_overdue(&f.borrower, &advance_id));
 }
 
 #[test]
 fn unknown_ids_report_not_found() {
     let f = setup();
-    assert_eq!(f.client.try_get(&id(&f.env, 7)), Err(Ok(Error::NotFound)));
+    assert_eq!(f.client.try_get(&f.borrower, &id(&f.env, 7)), Err(Ok(Error::NotFound)));
     assert_eq!(
-        f.client.try_is_overdue(&id(&f.env, 7)),
+        f.client.try_is_overdue(&f.borrower, &id(&f.env, 7)),
         Err(Ok(Error::NotFound))
     );
     assert_eq!(
-        f.client.try_mark_repaid(&id(&f.env, 7)),
+        f.client.try_mark_repaid(&f.borrower, &id(&f.env, 7)),
         Err(Ok(Error::NotFound))
     );
 }
@@ -297,5 +317,5 @@ fn a_borrower_cannot_close_someone_else_s_advance() {
     // Drop the blanket mock: mark_repaid must now fail for want of the borrower's auth.
     let env2 = env.clone();
     env2.set_auths(&[]);
-    assert!(client.try_mark_repaid(&advance_id).is_err());
+    assert!(client.try_mark_repaid(&borrower, &advance_id).is_err());
 }

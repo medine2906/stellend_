@@ -26,6 +26,8 @@ design for *how* it gets wired in, and what the registry is allowed to be believ
 **"What are we building next, and why that?"**
 → [PRD.md](PRD.md). The Phase 0 → Phase 1 scope call, framed around what a licensed partner
 will ask.
+→ [EPICS-AND-STORIES.md](EPICS-AND-STORIES.md) turns that call into an ordered backlog with
+acceptance criteria, and records where the PRD's picture of the code has gone stale.
 
 **"Why Blend? Why no loan term? Is there really no TRY anchor?"**
 → [ECOSYSTEM.md](ECOSYSTEM.md). What we depend on in the Stellar ecosystem, what it

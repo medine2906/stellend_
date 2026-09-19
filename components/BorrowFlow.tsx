@@ -6,6 +6,7 @@ import { fetchSandboxAccount } from "@/lib/sandboxAccount";
 import { StatusTimeline, type TimelineStep } from "./StatusTimeline";
 import { TxLinks, type TxRecord } from "./TxLinks";
 import { MIN_DEPOSIT_TRY } from "@/lib/assets";
+import { getErrorMessage } from "@/lib/errors";
 import { formatIban, normalizeIban } from "@/lib/iban";
 import { LOAN_TERM_DAYS } from "@/lib/liquidity";
 import { amountOutOfRange, limitsHint, useAnchorLimits } from "@/lib/useAnchorLimits";
@@ -225,7 +226,7 @@ export function BorrowFlow() {
         amount: Number(collateralAmount),
       });
     } catch (err) {
-      setStep((prev) => ({ ...prev, failed: true, message: err instanceof Error ? err.message : "Cash advance failed" }));
+      setStep((prev) => ({ ...prev, failed: true, message: getErrorMessage(err, "Cash advance failed") }));
       void loadPending();
     } finally {
       setBusy(false);
@@ -250,7 +251,7 @@ export function BorrowFlow() {
       });
       setPending(null);
     } catch (err) {
-      setStep((prev) => ({ ...prev, failed: true, message: err instanceof Error ? err.message : "Could not resume" }));
+      setStep((prev) => ({ ...prev, failed: true, message: getErrorMessage(err, "Could not resume") }));
       void loadPending();
     } finally {
       setBusy(false);
@@ -263,7 +264,7 @@ export function BorrowFlow() {
       await postJson("/api/loans/borrow/resume", { withdrawalId: pending.withdrawalId }, "DELETE");
       setPending(null);
     } catch (err) {
-      setStep((prev) => ({ ...prev, failed: true, message: err instanceof Error ? err.message : "Could not discard" }));
+      setStep((prev) => ({ ...prev, failed: true, message: getErrorMessage(err, "Could not discard") }));
     }
   }
 

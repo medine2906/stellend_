@@ -8,6 +8,8 @@ export type AuditAction =
   | "collateral_locked"
   | "borrow_submitted"
   | "payout_submitted"
+  | "registry_open_submitted"
+  | "registry_close_submitted"
   | "deposit_start"
   | "supply_submitted"
   | "repay_submitted"

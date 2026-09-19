@@ -38,6 +38,7 @@ erDiagram
         numeric try_amount
         text status
         timestamptz due_at
+        text registry_closed_tx
     }
     deposits {
         uuid id PK
@@ -63,6 +64,8 @@ erDiagram
         text collateral_tx
         text borrow_tx
         text payout_tx
+        text advance_id
+        text registry_tx
     }
     transactions_log {
         uuid id PK
@@ -134,6 +137,22 @@ transaction status, never from the client.
 | `collateral_asset`, `collateral_amount` | What was posted, for the resume path and the loan row |
 | `collateral_tx`, `borrow_tx`, `payout_tx` | Which steps have landed. Together they are the resume stage |
 | `loan_id` | Set once the loan row exists; `on delete set null` so history survives |
+| `advance_id` | Hex sha256 of the borrow intent — the key the registry record lives under |
+| `registry_tx` | Hash of the `open()` transaction, if the borrower signed one |
+
+`loans.registry_closed_tx` is the matching hash for `mark_repaid()`.
+
+### The registry columns are a cache of a cache
+
+`advance_id`, `registry_tx` and `registry_closed_tx` exist so the UI can show "recorded"
+without an RPC call. They follow the same rule as everything else here, and the schema says
+so at the definition:
+
+> **null means "not observed on-chain", never "does not exist".**
+
+`advance_id` is reproducible from the withdrawal id alone, so a lost value can always be
+recomputed. The contract remains the authority on what is recorded; these columns only
+speed the page up.
 
 `borrowStage()` in [../lib/borrowIntent.ts](../lib/borrowIntent.ts) reads the last three
 plus `status` and returns exactly one stage. That derivation is the whole resume feature —

@@ -1,4 +1,5 @@
 import "server-only";
+import { getSep6Transaction } from "./anchor";
 import { getOrCreateProfileId } from "./profiles";
 import { getSupabaseServiceClient } from "./supabase";
 import type { WithdrawalRow } from "./database.types";
@@ -19,6 +20,31 @@ export async function loadWithdrawalIntent(withdrawalId: string, publicKey: stri
     .maybeSingle();
   if (error) throw error;
   return data ?? null;
+}
+
+/**
+ * An advance started before the destination columns existed has no anchor account on
+ * record. The anchor still holds it under `anchor_ref`, so ask it again and write the
+ * answer down. The address comes from the anchor, never from the client.
+ */
+export async function ensureAnchorDestination(intent: WithdrawalRow, jwt: string): Promise<WithdrawalRow> {
+  if (intent.anchor_account) return intent;
+
+  const tx = await getSep6Transaction(jwt, intent.anchor_ref);
+  if (!tx.withdraw_anchor_account) return intent;
+
+  const destination = {
+    anchor_account: tx.withdraw_anchor_account,
+    anchor_memo: tx.withdraw_memo ?? null,
+    anchor_memo_type: tx.withdraw_memo_type ?? null,
+  };
+  const { error } = await getSupabaseServiceClient()
+    .from("withdrawals")
+    .update(destination)
+    .eq("id", intent.id)
+    .is("anchor_account", null);
+  if (error) throw error;
+  return { ...intent, ...destination };
 }
 
 /** The step a cash advance has reached, derived from which transactions have landed. */

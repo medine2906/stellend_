@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { buildUsdcPaymentTransaction } from "@/lib/blend";
-import { loadWithdrawalIntent } from "@/lib/borrowIntent";
+import { ensureAnchorDestination, loadWithdrawalIntent } from "@/lib/borrowIntent";
 import { getErrorMessage } from "@/lib/errors";
 
 /**
@@ -22,8 +22,9 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const intent = await loadWithdrawalIntent(withdrawalId, session.publicKey);
-    if (!intent) return NextResponse.json({ error: "Cash advance not found" }, { status: 404 });
+    const loaded = await loadWithdrawalIntent(withdrawalId, session.publicKey);
+    if (!loaded) return NextResponse.json({ error: "Cash advance not found" }, { status: 404 });
+    const intent = await ensureAnchorDestination(loaded, session.jwt);
     if (!intent.anchor_account) {
       return NextResponse.json({ error: "This advance has no anchor destination on record" }, { status: 409 });
     }

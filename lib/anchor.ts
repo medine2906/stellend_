@@ -274,6 +274,10 @@ export interface Sep6Transaction {
   stellar_transaction_id?: string;
   external_transaction_id?: string;
   more_info_url?: string;
+  /** Where the user sends USDC for a withdrawal; SEP-6 repeats what `/withdraw` returned. */
+  withdraw_anchor_account?: string;
+  withdraw_memo?: string;
+  withdraw_memo_type?: "text" | "id" | "hash";
 }
 
 /** SEP-6: poll the current status of a previously started deposit/withdraw transaction. */

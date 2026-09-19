@@ -25,6 +25,10 @@ jobs:
           NEXT_PUBLIC_STELLAR_NETWORK: TESTNET
           NEXT_PUBLIC_BLEND_POOL_ID: CAPBMXIQTICKWFPWFDJWMAKBXBPJZUKLNONQH3MLPLLBKQ643CYN5PRW
           NEXT_PUBLIC_USDC_CONTRACT_ID: CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA
+          # Optional; when absent the registry feature is disabled. Value here is the
+          # testnet placeholder — the build never calls the RPC, so any valid-shaped
+          # contract id works.
+          NEXT_PUBLIC_ADVANCE_REGISTRY_ID: CC2F5JAI2REPM4CMKLSI3EMFBNHVMPOEVY7GARSCHTNHEOL536NOVWQF
 
   contracts:
     runs-on: ubuntu-latest

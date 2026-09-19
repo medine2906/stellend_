@@ -67,7 +67,31 @@ export async function GET() {
             effectiveLiabilities: health.totalEffectiveLiabilities,
           };
 
-    return NextResponse.json({ loans, debt, collateral }, { headers: { "Cache-Control": "no-store" } });
+    // Whether an advance has an on-chain receipt is recorded on its withdrawal row. Read as
+    // its own query rather than an embedded select: the hand-written Database type declares
+    // no relationships, so an embed comes back untyped.
+    const receipts = new Map<string, string | null>();
+    const loanIds = (loans ?? []).map((l) => l.id);
+    if (loanIds.length > 0) {
+      const { data: withdrawals, error: receiptsError } = await supabase
+        .from("withdrawals")
+        .select("loan_id, registry_tx")
+        .in("loan_id", loanIds);
+      if (receiptsError) throw receiptsError;
+      for (const w of withdrawals ?? []) {
+        if (w.loan_id) receipts.set(w.loan_id, w.registry_tx);
+      }
+    }
+
+    const loansWithRegistry = (loans ?? []).map((loan) => ({
+      ...loan,
+      registryRecorded: Boolean(receipts.get(loan.id)),
+    }));
+
+    return NextResponse.json(
+      { loans: loansWithRegistry, debt, collateral },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (err) {
     return NextResponse.json(
       { error: getErrorMessage(err, "Failed to fetch loans") },

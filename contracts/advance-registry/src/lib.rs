@@ -1,7 +1,7 @@
 #![no_std]
 //! # Advance registry
 //!
-//! Stellend keeps its advance records in Postgres, and that is a real weakness: the
+//! P2PCash keeps its advance records in Postgres, and that is a real weakness: the
 //! borrower's side of the agreement — how much fiat they were paid, against how much
 //! debt, and when they said they would close it — exists only in a table we control.
 //! Nothing stops the operator rewriting it after the fact, and a borrower has no
@@ -21,9 +21,16 @@
 //!   A borrower who never calls [`Self::mark_repaid`] leaves a stale `Open` record;
 //!   that costs them their own good standing and nothing else.
 //!
-//! Storage layout: one persistent entry per advance keyed by its id, plus one
-//! persistent index per borrower. Both are TTL-extended on every write and on read,
+//! Storage layout: one persistent entry per advance keyed by **borrower and id**, plus
+//! one persistent index per borrower. Both are TTL-extended on every write and on read,
 //! so an advance that is still being serviced cannot be archived out from under us.
+//!
+//! Advance ids are namespaced by borrower on purpose. P2PCash derives an id
+//! deterministically from the advance it belongs to, which is what makes a retried
+//! submission idempotent — but a deterministic id is also a guessable one. Were ids
+//! global, anyone could register a borrower's id first and leave their genuine record
+//! permanently unwritable, or make a careless reader show a stranger's figures. Under a
+//! per-borrower key the same id in two accounts is simply two unrelated records.
 
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, Address, BytesN, Env, Vec,
@@ -45,10 +52,10 @@ const MAX_PAGE: u32 = 100;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    /// An advance with this id is already recorded. Ids are content-addressed by the
-    /// caller, so a repeat means a replayed request, not a new advance.
+    /// This borrower already has an advance with this id. Ids are derived from the
+    /// advance itself, so a repeat means a replayed request, not a new advance.
     AlreadyExists = 1,
-    /// No advance with this id.
+    /// This borrower has no advance with this id.
     NotFound = 2,
     /// Amounts must be strictly positive.
     InvalidAmount = 3,
@@ -89,8 +96,9 @@ pub struct Advance {
 
 #[contracttype]
 enum DataKey {
-    /// Advance by id.
-    Advance(BytesN<32>),
+    /// Advance by borrower and id. The borrower is part of the key so one account can
+    /// never occupy — or shadow — another's record; see the module docs.
+    Advance(Address, BytesN<32>),
     /// How many advances this borrower has opened.
     Count(Address),
     /// The borrower's n-th advance id, oldest first.
@@ -130,9 +138,9 @@ impl AdvanceRegistry {
     /// by the account it is about. That is the whole point — a row in our database
     /// claims the borrower agreed to something, whereas this proves it.
     ///
-    /// `id` is chosen by the caller and must be unique; Stellend uses a hash derived
-    /// from the borrow intent, which makes a retried submission idempotent rather
-    /// than duplicating the record.
+    /// `id` must be unique *for this borrower*; P2PCash uses a hash derived from the
+    /// borrow intent, which makes a retried submission idempotent rather than
+    /// duplicating the record.
     pub fn open(
         env: Env,
         borrower: Address,
@@ -153,7 +161,7 @@ impl AdvanceRegistry {
             return Err(Error::InvalidDueDate);
         }
 
-        let key = DataKey::Advance(id.clone());
+        let key = DataKey::Advance(borrower.clone(), id.clone());
         if env.storage().persistent().has(&key) {
             return Err(Error::AlreadyExists);
         }
@@ -204,8 +212,8 @@ impl AdvanceRegistry {
     /// Marks an advance settled. Authorised by the borrower, because only they can
     /// make a claim about their own record; the pool remains the authority on whether
     /// the debt is actually gone.
-    pub fn mark_repaid(env: Env, id: BytesN<32>) -> Result<(), Error> {
-        let key = DataKey::Advance(id.clone());
+    pub fn mark_repaid(env: Env, borrower: Address, id: BytesN<32>) -> Result<(), Error> {
+        let key = DataKey::Advance(borrower.clone(), id.clone());
         let mut advance: Advance = env
             .storage()
             .persistent()
@@ -219,7 +227,6 @@ impl AdvanceRegistry {
         }
 
         advance.status = Status::Repaid;
-        let borrower = advance.borrower.clone();
         env.storage().persistent().set(&key, &advance);
         env.storage()
             .persistent()
@@ -232,8 +239,8 @@ impl AdvanceRegistry {
 
     /// The advance as recorded. Reading extends its TTL, so an advance anyone is still
     /// watching stays alive.
-    pub fn get(env: Env, id: BytesN<32>) -> Result<Advance, Error> {
-        let key = DataKey::Advance(id);
+    pub fn get(env: Env, borrower: Address, id: BytesN<32>) -> Result<Advance, Error> {
+        let key = DataKey::Advance(borrower, id);
         let advance: Advance = env
             .storage()
             .persistent()
@@ -247,18 +254,28 @@ impl AdvanceRegistry {
 
     /// Whether an open advance is past the date its borrower committed to. Reporting
     /// only: nothing in this contract, or in Blend, acts on the answer.
-    pub fn is_overdue(env: Env, id: BytesN<32>) -> Result<bool, Error> {
-        let advance = Self::get(env.clone(), id)?;
+    pub fn is_overdue(env: Env, borrower: Address, id: BytesN<32>) -> Result<bool, Error> {
+        let advance = Self::get(env.clone(), borrower, id)?;
         Ok(advance.status == Status::Open && env.ledger().timestamp() > advance.due_at)
     }
 
     /// How many advances this borrower has recorded. Zero for an unknown account
     /// rather than an error — "none" is a valid answer, not a failure.
+    ///
+    /// Reading extends the counter's TTL as well. The advances themselves are kept
+    /// alive by every read of them, and a counter allowed to be archived first would
+    /// leave a borrower who had been idle a while unable to list records still there.
     pub fn count(env: Env, borrower: Address) -> u32 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Count(borrower))
-            .unwrap_or(0)
+        let key = DataKey::Count(borrower);
+        match env.storage().persistent().get::<_, u32>(&key) {
+            Some(count) => {
+                env.storage()
+                    .persistent()
+                    .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+                count
+            }
+            None => 0,
+        }
     }
 
     /// A page of this borrower's advance ids, oldest first, starting at `start`.

@@ -50,10 +50,17 @@ export async function GET() {
         collateralAsset: intent.collateral_asset,
         collateralAmount: intent.collateral_amount,
         createdAt: intent.created_at,
+        /**
+         * Whether the borrower has signed the advance registry record (step 6).
+         * False means it was declined or not yet attempted — the UI should offer it.
+         * This never gates resume; borrowStage is unchanged by a missing record.
+         */
+        registryRecorded: Boolean(intent.registry_tx),
         txs: [
           intent.collateral_tx && { label: "Lock collateral", hash: intent.collateral_tx },
           intent.borrow_tx && { label: "Borrow USDC", hash: intent.borrow_tx },
           intent.payout_tx && { label: "Send USDC to anchor", hash: intent.payout_tx },
+          intent.registry_tx && { label: "Sign advance record", hash: intent.registry_tx },
         ].filter(Boolean),
       },
     });

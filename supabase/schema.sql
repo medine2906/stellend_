@@ -80,6 +80,11 @@ alter table withdrawals add column if not exists collateral_amount numeric;
 alter table withdrawals add column if not exists collateral_tx text;
 alter table withdrawals add column if not exists borrow_tx text;
 alter table withdrawals add column if not exists payout_tx text;
+-- Registry cache: null means "not observed on-chain", never "does not exist".
+-- The chain is authoritative; these columns only speed up the UI.
+alter table withdrawals add column if not exists advance_id text;     -- hex sha256 of the borrow intent
+alter table withdrawals add column if not exists registry_tx text;    -- hash of the open() transaction
+alter table loans       add column if not exists registry_closed_tx text; -- hash of the mark_repaid() transaction
 
 create table if not exists transactions_log (
   id uuid primary key default gen_random_uuid(),

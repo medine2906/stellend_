@@ -25,6 +25,8 @@ export type LoanRow = {
   status: LoanStatus;
   created_at: string;
   due_at: string | null;
+  /** Hash of the mark_repaid() transaction, if the borrower has called it. Null = not yet closed on-chain. */
+  registry_closed_tx: string | null;
 };
 
 export type DepositRow = {
@@ -61,6 +63,11 @@ export type WithdrawalRow = {
   collateral_tx: string | null;
   borrow_tx: string | null;
   payout_tx: string | null;
+  /** Registry cache — null means not yet observed on-chain, never "does not exist".
+   *  advance_id is the hex sha256 used as the on-chain key.
+   *  registry_tx is the hash of the open() transaction. */
+  advance_id: string | null;
+  registry_tx: string | null;
 };
 
 export type SandboxSpendRow = {

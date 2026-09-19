@@ -167,3 +167,121 @@ export function assertRestoreFootprint(signedXdr: string, account: string) {
     throw new TransactionMismatchError(`it is a ${op.type} operation, expected a footprint restore`);
   }
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Advance registry guards
+//
+// Every argument to the registry contract is server-derived, so every check
+// is exact equality — there is nothing client-chosen to allow a range for.
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface RegistryOpenExpected {
+  registryId: string;
+  borrower: string;
+  /** advanceId(withdrawalId) as a hex string */
+  id: string;
+  /** payoutRef(anchorRef, iban) as a hex string */
+  payoutRef: string;
+  usdcStroops: bigint;
+  tryMinorUnits: bigint;
+  /** Unix timestamp (seconds) matching loans.due_at */
+  dueAtSec: bigint;
+}
+
+/**
+ * Asserts the signed transaction is a registry `open` call with exactly the
+ * server-derived arguments. Any mismatch means the client tried to record
+ * something other than its own advance — refuse and audit.
+ */
+export function assertRegistryOpen(signedXdr: string, account: string, expected: RegistryOpenExpected): void {
+  const op = singleOperation(signedXdr, account);
+  if (op.type !== "invokeHostFunction") {
+    throw new TransactionMismatchError(`it is a ${op.type} operation, expected a contract call`);
+  }
+  if (op.func.type !== "hostFunctionTypeInvokeContract") {
+    throw new TransactionMismatchError("it is not a contract invocation");
+  }
+
+  const inv = op.func.invokeContract;
+  const contractId = Address.fromScAddress(inv.contractAddress).toString();
+  if (contractId !== expected.registryId) {
+    throw new TransactionMismatchError(`it calls contract ${contractId}, not the advance registry`);
+  }
+  const fn = inv.functionName.toString();
+  if (fn !== "open") {
+    throw new TransactionMismatchError(`it calls '${fn}', not 'open'`);
+  }
+
+  const args = inv.args.map((arg: xdr.ScVal) => scValToNative(arg));
+  // open(borrower, id, usdc_amount, try_amount, payout_ref, due_at)
+  const [borrower, id, usdcAmount, tryAmount, payoutRefVal, dueAt] = args;
+
+  if (borrower !== expected.borrower) {
+    throw new TransactionMismatchError("it records an advance for a different borrower");
+  }
+  // id and payout_ref come back as Uint8Array from scValToNative
+  const idHex = Buffer.from(id as Uint8Array).toString("hex");
+  if (idHex !== expected.id) {
+    throw new TransactionMismatchError("its advance id does not match this withdrawal");
+  }
+  const refHex = Buffer.from(payoutRefVal as Uint8Array).toString("hex");
+  if (refHex !== expected.payoutRef) {
+    throw new TransactionMismatchError("its payout_ref does not match this withdrawal");
+  }
+  if (BigInt(usdcAmount as string | number | bigint) !== expected.usdcStroops) {
+    throw new TransactionMismatchError("its USDC amount does not match the advance");
+  }
+  if (BigInt(tryAmount as string | number | bigint) !== expected.tryMinorUnits) {
+    throw new TransactionMismatchError("its TRY amount does not match the advance");
+  }
+  if (BigInt(dueAt as string | number | bigint) !== expected.dueAtSec) {
+    throw new TransactionMismatchError("its due date does not match what the app shows the borrower");
+  }
+}
+
+export interface RegistryMarkRepaidExpected {
+  registryId: string;
+  borrower: string;
+  /** advanceId(withdrawalId) as a hex string */
+  id: string;
+}
+
+/**
+ * Asserts the signed transaction is a registry `mark_repaid` call for the
+ * correct borrower and advance.
+ */
+export function assertRegistryMarkRepaid(
+  signedXdr: string,
+  account: string,
+  expected: RegistryMarkRepaidExpected,
+): void {
+  const op = singleOperation(signedXdr, account);
+  if (op.type !== "invokeHostFunction") {
+    throw new TransactionMismatchError(`it is a ${op.type} operation, expected a contract call`);
+  }
+  if (op.func.type !== "hostFunctionTypeInvokeContract") {
+    throw new TransactionMismatchError("it is not a contract invocation");
+  }
+
+  const inv = op.func.invokeContract;
+  const contractId = Address.fromScAddress(inv.contractAddress).toString();
+  if (contractId !== expected.registryId) {
+    throw new TransactionMismatchError(`it calls contract ${contractId}, not the advance registry`);
+  }
+  const fn = inv.functionName.toString();
+  if (fn !== "mark_repaid") {
+    throw new TransactionMismatchError(`it calls '${fn}', not 'mark_repaid'`);
+  }
+
+  const args = inv.args.map((arg: xdr.ScVal) => scValToNative(arg));
+  // mark_repaid(borrower, id)
+  const [borrower, id] = args;
+
+  if (borrower !== expected.borrower) {
+    throw new TransactionMismatchError("it closes an advance belonging to a different borrower");
+  }
+  const idHex = Buffer.from(id as Uint8Array).toString("hex");
+  if (idHex !== expected.id) {
+    throw new TransactionMismatchError("its advance id does not match this withdrawal");
+  }
+}

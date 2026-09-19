@@ -33,8 +33,13 @@ to cash out.
 4. borrow       POST /api/loans/borrow/{prepare,submit}         ← wallet signs
 5. payout       POST /api/loans/borrow/payout/{prepare,submit}  ← wallet signs
                 → pays the borrowed USDC to the anchor's account
+                  **advance is complete here**
 
-6. settle       anchor observes the payment, sends TRY to the IBAN
+6. record       POST /api/loans/borrow/record/{prepare,submit}  ← wallet signs   [optional]
+                → writes a borrower-signed statement to the advance registry contract;
+                  can be skipped, declined, and retried later — it is not a gate
+
+7. settle       anchor observes the payment, sends TRY to the IBAN
                 GET /api/withdraw/[id]/status flips the loan to `active`
 ```
 
@@ -80,7 +85,7 @@ flowchart TB
     API -->|"quote · deposit · withdraw"| ANCHOR
     ANCHOR <-->|"bank transfer"| BANK
     API --> DB
-    GUARD -.->|"not wired up yet"| REG
+    GUARD -->|"open · mark_repaid<br/>optional, borrower-signed"| REG
     POOL --- USDC
     ANCHOR -->|"issues"| USDC
 
@@ -162,17 +167,21 @@ Design notes worth their space:
 - **TTLs are extended on read as well as write**, so an advance anyone is still
   watching cannot be archived out from under it.
 
-**Status: deployed and exercised on testnet, not yet called by the app.** The contract
-is live and every function has been invoked against it, but the borrow flow does not
-write to it yet — that is the next commit, hooking `open` onto the payout step and
-`mark_repaid` onto settlement. Said plainly here so the diagram above is not read as a
-claim it does not yet earn.
+**Status: deployed on testnet, and the server calls it.** `open` is wired to
+`/api/loans/borrow/record/{prepare,submit}` and `mark_repaid` to
+`/api/loans/[id]/registry/close/{prepare,submit}`; every argument is derived server-side
+from the borrow intent and checked by [lib/txguard.ts](lib/txguard.ts) before submission.
+The whole feature is gated on `NEXT_PUBLIC_ADVANCE_REGISTRY_ID` — with no contract id
+configured the routes answer 404 and the step simply does not exist.
+
+Recording is **optional and never a gate**: the advance is complete at payout. A borrower
+who declines, or closes the tab, can sign it later; nothing downstream reads it.
 
 Build, test and deploy it:
 
 ```bash
 cd contracts
-cargo test                                    # 12 unit tests
+cargo test                                    # 13 unit tests
 stellar contract build                        # → target/wasm32v1-none/release/advance_registry.wasm
 stellar keys generate deployer --network testnet --fund
 stellar contract deploy \
@@ -222,6 +231,13 @@ These are real and deliberate, not oversights:
 - **No KYC.** SEP-12 is not implemented; a real anchor would require it.
 - **Debt is per wallet, loans are per row.** Blend tracks one debt position per account, so
   mapping it back onto individual loan records is an approximation.
+- **Registry records an advance before settlement is confirmed.** The advance registry `open`
+  call (step 6) is written after the USDC payout lands but before the anchor has confirmed
+  sending the TRY. If the anchor then fails or refunds, a permanent on-chain record exists
+  claiming the borrower received lira they did not. The contract has no `void`. The frequency
+  of this scenario is unknown against a mock anchor; a `void` entry point or post-settlement
+  recording will be designed once Phase 2 pilot data is available.
+
 
 ## Documentation
 
@@ -254,8 +270,8 @@ Checks:
 ```bash
 npm run typecheck
 npm run lint
-npm test                       # 105 tests
-(cd contracts && cargo test)   # 12 contract tests
+npm test                       # 105+ tests
+(cd contracts && cargo test)   # 13 contract tests
 ```
 
 Building the contract additionally needs the Rust `wasm32v1-none` target and

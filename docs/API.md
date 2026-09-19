@@ -17,6 +17,7 @@ key comes from the anchor's SEP-10 token, never from the request — see
 | 400 | The request is malformed or an amount is out of range |
 | 401 | No session, or the keeper's bearer token is wrong |
 | 403 | Cross-site mutating request, rejected by `proxy.ts` |
+| 404 | The referenced row is not the caller's, or a gated feature is not configured |
 | 409 | The state has moved on (for example, an advance already on chain) |
 | 429 | Rate limited; a `Retry-After` header says for how long |
 | 502 | An upstream — anchor, RPC or database — failed |
@@ -29,6 +30,11 @@ client across the API, and 12 per minute for `/api/auth/token`, `/api/auth/chall
 **Signing.** Routes ending in `/prepare` return an unsigned XDR string; the matching
 `/submit` takes `{ "signedXdr": "..." }` and verifies it before submission. A rejected
 transaction answers 400 with the reason from `TransactionMismatchError`.
+
+**Feature gates.** The advance registry routes are gated on
+`NEXT_PUBLIC_ADVANCE_REGISTRY_ID`. With no contract id configured they answer
+`404 {"error": "Registry feature is not configured"}` before touching the session, so a
+deployment without the contract behaves as if the feature does not exist.
 
 ## Auth
 
@@ -63,11 +69,52 @@ Each is a `prepare` then a `submit`, in this order:
 | Borrow | `POST /api/loans/borrow/prepare` `{ withdrawalId }` | `{ signedXdr, withdrawalId }` | Amount comes from the intent, not the request |
 | Payout | `POST /api/loans/borrow/payout/prepare` `{ withdrawalId }` | `{ signedXdr, withdrawalId }` | Pays the borrowed USDC to the anchor with its memo |
 
+**The advance is complete at payout.** Everything below is optional.
+
+### `POST /api/loans/borrow/record/{prepare,submit}` — step 6, optional
+
+Writes the borrower-signed record to the advance registry contract. `prepare` takes
+`{ withdrawalId }` and returns `{ unsignedXdr }`; `submit` takes
+`{ signedXdr, withdrawalId }` and returns `{ hash }`.
+
+Every argument to the contract is derived server-side from the intent and the loan row —
+the client supplies nothing but a signature:
+
+| Contract argument | Derived from |
+|---|---|
+| `id` | `sha256("stellend-advance-v1\|" + withdrawalId)` |
+| `payout_ref` | `sha256("stellend-payout-v1\|" + anchor_ref + "\|" + normalizeIban(iban))` |
+| `usdc_amount` | `withdrawals.usdc_amount` → 7-decimal stroops |
+| `try_amount` | `withdrawals.try_amount` → 2-decimal minor units |
+| `due_at` | `loans.due_at`, as Unix seconds, so the chain matches what the UI showed |
+
+`assertRegistryOpen` then re-checks every one of those by equality before submission.
+
+Refuses with `409` when the payout has not landed, when the intent has no loan row, or when
+that loan has no due date. Because the id is content-addressed, a retry rebuilds the same
+id and the contract answers `AlreadyExists` — the record you wanted is already there.
+
+### `POST /api/loans/[id]/registry/close/{prepare,submit}` — optional
+
+Offered after a full repayment: signs `mark_repaid` for the record behind this loan. The
+registry key comes from the *withdrawal* id, not the loan id, so the route looks the
+withdrawal up first and answers `404` when the loan is not the caller's. `submit` takes
+`{ signedXdr }` and caches the hash on `loans.registry_closed_tx`.
+
+`prepare` does not require the record to exist. If it does not, the contract answers
+`NotFound` and the submit surfaces it — the chain stays the authority on what is recorded,
+not our cache.
+
 ### `GET /api/loans/borrow/resume`
 
 Returns `{ pending: null }`, or a `pending` object with `withdrawalId`, `stage`
-(`collateral` | `borrow` | `payout` | `settling`), the amounts, the IBAN and the collateral
-already posted. Only recent, unfinished advances are offered.
+(`collateral` | `borrow` | `payout` | `settling`), the amounts, the IBAN, the collateral
+already posted, `registryRecorded`, and `txs` — the labelled hashes of the steps that have
+landed. Only recent, unfinished advances are offered.
+
+`registryRecorded: false` means the record was declined or not yet attempted. It **never**
+gates resume: `borrowStage` does not consider it, because an unrecorded advance is a
+complete advance.
 
 ### `DELETE /api/loans/borrow/resume`
 
@@ -120,7 +167,7 @@ before marking anything repaid.
 |---|---|---|
 | `/api/markets` | GET *(public)* | Live pool reserve: supplied, borrowed, supply/borrow APR and APY, utilisation, caps, collateral and liability factors, oracle price, backstop rate, the rate curve, the ledger it was read at, and the TRY rate |
 | `/api/markets/wallet` | GET | The signed-in wallet's position in that market |
-| `/api/loans/mine` | GET | `{ loans, debt, collateral }` — rows plus live pool figures, `Cache-Control: no-store` |
+| `/api/loans/mine` | GET | `{ loans, debt, collateral }` — rows plus live pool figures, `Cache-Control: no-store`. Each loan carries `registryRecorded`, read from the backing withdrawal's `registry_tx` |
 | `/api/loans/[id]/health` | GET | `{ health }` from the pool. Read for the caller's own wallet; the id is for routing symmetry only |
 | `/api/loans/collateral/options` | GET *(public)* | Assets this pool accepts as collateral |
 | `/api/profile` | GET | `{ publicKey, summary, deposits, loans }` |
