@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      # The build needs the public config to be present but never reaches the network:
+      # `lib/env.ts` only validates shape, and every RPC/anchor call happens at request time.
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_STELLAR_NETWORK: TESTNET
+          NEXT_PUBLIC_BLEND_POOL_ID: CAPBMXIQTICKWFPWFDJWMAKBXBPJZUKLNONQH3MLPLLBKQ643CYN5PRW
+          NEXT_PUBLIC_USDC_CONTRACT_ID: CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA
+
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: contracts
+      # Tests run native against the host SDK.
+      - run: cargo test
+        working-directory: contracts
+      # The deployable artifact must also still build for wasm. This cannot be a plain
+      # `cargo build --target wasm32v1-none`: soroban-sdk 28 refuses to build a contract
+      # unless it is driven by stellar-cli 25.2+, which is also what does the optimisation.
+      - uses: stellar/stellar-cli@main
+      - run: stellar contract build
+        working-directory: contracts
