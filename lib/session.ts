@@ -7,17 +7,6 @@ const SESSION_COOKIE = "stellend_session";
 const PLACEHOLDER_SECRET = "change-me-in-production";
 const MIN_SECRET_LENGTH = 32;
 
-// A guessable signing key means anyone can mint a session for any wallet, so production
-// refuses to start rather than run with one. Development keeps the placeholder working.
-if (process.env.NODE_ENV === "production") {
-  if (env.SESSION_COOKIE_SECRET === PLACEHOLDER_SECRET || env.SESSION_COOKIE_SECRET.length < MIN_SECRET_LENGTH) {
-    throw new Error(
-      "SESSION_COOKIE_SECRET must be set to a random value of at least " +
-        `${MIN_SECRET_LENGTH} characters in production (generate one with \`openssl rand -base64 32\`)`,
-    );
-  }
-}
-
 export interface SessionData {
   jwt: string;
   publicKey: string;
@@ -26,7 +15,18 @@ export interface SessionData {
 const IV_LENGTH = 12;
 
 function key(): Buffer {
-  return createHash("sha256").update(env.SESSION_COOKIE_SECRET).digest();
+  const secret = env.SESSION_COOKIE_SECRET;
+  // A guessable signing key means anyone can mint a session for any wallet, so production
+  // refuses to start rather than run with one. Development keeps the placeholder working.
+  if (process.env.NODE_ENV === "production") {
+    if (secret === PLACEHOLDER_SECRET || secret.length < MIN_SECRET_LENGTH) {
+      throw new Error(
+        "SESSION_COOKIE_SECRET must be set to a random value of at least " +
+          `${MIN_SECRET_LENGTH} characters in production (generate one with \`openssl rand -base64 32\`)`,
+      );
+    }
+  }
+  return createHash("sha256").update(secret).digest();
 }
 
 /**
