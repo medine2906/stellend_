@@ -94,8 +94,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ account: address }),
       });
-      if (!challengeRes.ok) throw new Error((await challengeRes.json()).error ?? "Challenge request failed");
-      const { transaction, network_passphrase } = await challengeRes.json();
+      const challengeData = await challengeRes.json();
+      if (!challengeRes.ok) throw new Error(challengeData.error ?? "Challenge request failed");
+      const { transaction, network_passphrase } = challengeData;
 
       const signedXdr = await signWith(address, transaction, network_passphrase);
 
@@ -104,7 +105,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ transaction: signedXdr, publicKey: address }),
       });
-      if (!tokenRes.ok) throw new Error((await tokenRes.json()).error ?? "Token exchange failed");
+      const tokenData = await tokenRes.json();
+      if (!tokenRes.ok) throw new Error(tokenData.error ?? "Token exchange failed");
 
       setAuthenticated(true);
       return true;
