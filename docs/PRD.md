@@ -111,22 +111,18 @@ Shipped and working (testnet):
   the term-loan fiction.
 - CI running typecheck, lint, tests and build.
 
-Built since this PRD was drafted, and not yet reachable by a user:
+Delivered since this PRD was drafted — **Epic 2 is complete end to end:**
 
-- **The advance registry back end.** The contract is deployed to testnet, `lib/registry.ts`
-  derives the deterministic advance id and the hashed payout reference, four prepare/submit
-  routes exist, `lib/txguard.ts` guards `open` and `mark_repaid`, and `resume` reports
-  `registryRecorded` without gating the advance on it. What is missing is the entire product
-  surface: no component calls any of those routes, so no borrower can sign a record.
-  See [EPICS-AND-STORIES.md](EPICS-AND-STORIES.md) — Epic 2 is now the UI half only.
+- The contract is deployed to testnet; `lib/registry.ts` derives the deterministic advance id
+  and the hashed payout reference; four prepare/submit routes back it; `lib/txguard.ts` guards
+  `open` and `mark_repaid` with 18 tests of its own.
+- A borrower is offered the record after payout, can retry it later from the loan view, and
+  can mark it settled on repayment. A failed record says so plainly and leaves the advance
+  untouched — `resume` reports `registryRecorded` without ever gating on it.
 
-- **A red build.** `npm run typecheck` and `npm test` both fail on the new work — a duplicate
-  `USDC` binding stops `test/txguard.test.ts` transforming at all, so the new registry guard
-  tests have never executed, and BigInt literals exceed the `ES2017` target. Until this is
-  fixed, "tested" is not a claim this repository can make.
-
-Not built at all: any revenue mechanism, any explicit consent gate, any partner-facing
-integration documentation.
+Not built: any revenue mechanism, any explicit consent gate, any partner-facing integration
+documentation. All three are deliberately deferred — see
+[EPICS-AND-STORIES.md](EPICS-AND-STORIES.md) for what was cut for the submission and why.
 
 ---
 

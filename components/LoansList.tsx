@@ -185,9 +185,119 @@ function RegistryRow({ loan, busy, onSign }: { loan: Loan; busy: string | null; 
   }
 
   return (
-    <p className="mt-3 border-t border-panel-3 pt-3 text-xs text-muted">
-      {loan.registry_closed_tx ? "Recorded and marked settled on-chain." : "Recorded on-chain under your own key."}
-    </p>
+    <div className="mt-3 border-t border-panel-3 pt-3">
+      <p className="text-xs text-muted">
+        {loan.registry_closed_tx ? "Recorded and marked settled on-chain." : "Recorded on-chain under your own key."}
+      </p>
+      <OnChainRecord loanId={loan.id} />
+    </div>
+  );
+}
+
+interface ChainRecord {
+  borrower: string;
+  usdcAmount: number;
+  tryAmount: number;
+  payoutRef: string;
+  openedAt: string;
+  dueAt: string;
+  status: "open" | "repaid";
+}
+
+interface RecordResponse {
+  advanceId: string;
+  record: ChainRecord | null;
+  cached: { registryTx: string | null; recordedAt: string | null };
+  ours: { usdcAmount: number; tryAmount: number; dueAt: string | null; status: LoanStatus } | null;
+}
+
+/**
+ * The record as the contract holds it, fetched on demand.
+ *
+ * Everything else in this list is our database describing itself. This is the one place
+ * the borrower sees the ledger's own answer, which is the entire reason the contract
+ * exists — so it is read live rather than cached, and a disagreement with our numbers is
+ * shown rather than smoothed over.
+ */
+function OnChainRecord({ loanId }: { loanId: string }) {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<RecordResponse | null>(null);
+  const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+
+  async function toggle() {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setOpen(true);
+    if (data || state === "loading") return;
+    setState("loading");
+    try {
+      const res = await fetch(`/api/loans/${loanId}/registry`, { cache: "no-store" });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error);
+      setData(body);
+      setState("idle");
+    } catch {
+      setState("error");
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <button onClick={() => void toggle()} className="text-xs text-accent underline-offset-2 hover:underline">
+        {open ? "Hide the on-chain record" : "Show the on-chain record"}
+      </button>
+
+      {open && (
+        <div className="mt-2 flex flex-col gap-1 text-xs">
+          {state === "loading" && <p className="text-muted">Reading the contract…</p>}
+          {state === "error" && <p className="text-warn">Could not reach the network to read it. Your record is unaffected.</p>}
+
+          {data?.record && (
+            <>
+              <div className="flex justify-between">
+                <span className="text-muted">Recorded debt</span>
+                <span className="text-fg">{data.record.usdcAmount.toFixed(2)} USDC</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted">Recorded payout</span>
+                <span className="text-fg">{data.record.tryAmount.toFixed(2)} TRY</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted">Signed</span>
+                <span className="text-fg">{new Date(data.record.openedAt).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted">Date you committed to</span>
+                <span className="text-fg">{new Date(data.record.dueAt).toLocaleDateString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted">Status on chain</span>
+                <span className="text-fg">{data.record.status === "repaid" ? "Settled" : "Open"}</span>
+              </div>
+              <p className="mt-1 break-all text-faint">Payout reference: {data.record.payoutRef}</p>
+              <p className="text-faint">
+                A hash of your anchor reference and IBAN — never the IBAN itself. Keep both and you can recompute it
+                to prove which payout this record covers.
+              </p>
+              {data.ours && Math.abs(data.ours.usdcAmount - data.record.usdcAmount) > 0.005 && (
+                <p className="text-warn">
+                  Our records say {data.ours.usdcAmount.toFixed(2)} USDC. The chain is the one to trust.
+                </p>
+              )}
+            </>
+          )}
+
+          {data && !data.record && state === "idle" && (
+            <p className="text-muted">
+              The record could not be read right now — the network may be unreachable, or the entry may have been
+              archived. That is not the same as it not existing.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

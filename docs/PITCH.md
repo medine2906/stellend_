@@ -15,7 +15,7 @@ They are marked `‹…›`.
 
 Turkish lira in and out of a Stellar lending pool.
 
-Genesis Track · Stellar Testnet · ‹demo URL› · github.com/medine2906/stellend_
+Genesis Track · Stellar Testnet · stellend-cyan.vercel.app · github.com/medine2906/stellend_
 
 > **Notes:** One sentence, then move. "We put Turkish lira into a Stellar lending pool,
 > and take it back out again." Don't explain DeFi yet.
@@ -223,10 +223,10 @@ In order of how likely each is to kill it:
 
 ## Slide 14 — Team & links
 
-‹Name — role — contact› *(up to 4 for Genesis)*
+‹FILL BEFORE SUBMITTING — Name — role — contact› *(up to 4 for Genesis)*
 
-- Repo: github.com/‹repo›
-- Live demo: ‹demo URL›
+- Repo: github.com/medine2906/stellend_
+- Live demo: https://stellend-cyan.vercel.app
 - Registry contract: [stellar.expert](https://stellar.expert/explorer/testnet/contract/CC2F5JAI2REPM4CMKLSI3EMFBNHVMPOEVY7GARSCHTNHEOL536NOVWQF)
 - Blend pool: `CAPBMXIQTICKWFPWFDJWMAKBXBPJZUKLNONQH3MLPLLBKQ643CYN5PRW`
 - Anchor: tr-mock-anchor.fly.dev

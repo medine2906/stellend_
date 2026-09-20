@@ -94,6 +94,31 @@ Refuses with `409` when the payout has not landed, when the intent has no loan r
 that loan has no due date. Because the id is content-addressed, a retry rebuilds the same
 id and the contract answers `AlreadyExists` — the record you wanted is already there.
 
+### `GET /api/loans/[id]/registry`
+
+The record as the **contract** holds it, read live by simulating `get(borrower, id)`.
+Everywhere else the registry appears, the borrower is looking at our cached flag — which is
+our word again, the thing the contract exists to stop being the only record.
+
+```
+{
+  advanceId,                        // hex, the on-chain key
+  record: { borrower, usdcAmount, tryAmount, payoutRef,
+            openedAt, dueAt, status } | null,
+  cached: { registryTx, recordedAt },
+  ours:   { usdcAmount, tryAmount, dueAt, status } | null
+}
+```
+
+`record: null` means **could not be confirmed right now** — an archived entry or an
+unreachable RPC lands there too. It is never proof that no record exists, and the UI says
+so in those words. `ours` is returned alongside so a disagreement can be shown rather than
+smoothed over; amounts are converted back from stroops and minor units, so the two compare
+directly.
+
+Scoped to the caller's own profile: a loan id alone never reveals someone else's advance,
+even though the record itself is public on chain.
+
 ### `POST /api/loans/[id]/registry/close/{prepare,submit}` — optional
 
 Offered after a full repayment: signs `mark_repaid` for the record behind this loan. The

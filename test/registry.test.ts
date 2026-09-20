@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "crypto";
-import { advanceId, payoutRef, usdcToStroops, tryToMinorUnits } from "@/lib/registry";
+import { advanceId, decodeAdvance, payoutRef, usdcToStroops, tryToMinorUnits } from "@/lib/registry";
 
 // These are fixed-vector tests: the exact byte sequences here are the
 // compatibility surface. If any of these fail after a refactor, old on-chain
@@ -80,5 +80,45 @@ describe("tryToMinorUnits", () => {
     expect(tryToMinorUnits(5000)).toBe(500_000n);
     expect(tryToMinorUnits(350_000)).toBe(35_000_000n);
     expect(tryToMinorUnits(1.5)).toBe(150n);
+  });
+});
+
+describe("decodeAdvance", () => {
+  // The shape `scValToNative` produces for the contract's Advance struct: i128 and u64
+  // arrive as bigints, BytesN<32> as bytes, and a unit enum with explicit discriminants
+  // as a plain number.
+  const chainValue = {
+    borrower: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    usdc_amount: 1_500_000_000n,
+    try_amount: 500_000n,
+    payout_ref: new Uint8Array(32).fill(7),
+    opened_at: 1_700_000_000n,
+    due_at: 1_702_592_000n,
+    status: 0n,
+  };
+
+  it("converts the contract's units back to the ones we display", () => {
+    const record = decodeAdvance(chainValue);
+
+    expect(record?.usdcAmount).toBe(150);
+    expect(record?.tryAmount).toBe(5000);
+    expect(record?.status).toBe("open");
+    expect(record?.payoutRef).toBe("07".repeat(32));
+    expect(record?.openedAt).toBe(new Date(1_700_000_000_000).toISOString());
+  });
+
+  it("reads the repaid discriminant", () => {
+    expect(decodeAdvance({ ...chainValue, status: 1n })?.status).toBe("repaid");
+  });
+
+  it("returns null rather than guessing at a shape it does not recognise", () => {
+    // A status this code has never seen means a newer contract. Showing a record with a
+    // made-up status would be worse than showing none: the point of the page is that the
+    // numbers on it are the chain's, not ours.
+    expect(decodeAdvance({ ...chainValue, status: 9n })).toBeNull();
+    expect(decodeAdvance({ ...chainValue, usdc_amount: "not a number" })).toBeNull();
+    expect(decodeAdvance({ ...chainValue, payout_ref: 42 })).toBeNull();
+    expect(decodeAdvance(null)).toBeNull();
+    expect(decodeAdvance("nope")).toBeNull();
   });
 });

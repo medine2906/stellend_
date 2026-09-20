@@ -154,6 +154,30 @@ An advance still being serviced — or merely still being watched — cannot be 
 from under us. Background on Soroban state archival:
 <https://developers.stellar.org/docs/build/guides/archival/extend-persistent-entry-js>.
 
+## Reading the record back
+
+`readAdvanceRecord` in [../lib/registry.ts](../lib/registry.ts) simulates `get` against the
+contract and hands the result to `decodeAdvance`, which converts the chain's units back to
+the ones a page can show — stroops to USDC, minor units to TRY, ledger seconds to an ISO
+timestamp, the `Status` discriminant to `"open"` or `"repaid"`.
+
+`decodeAdvance` **returns null for any shape it does not recognise**, including a status
+discriminant it has never seen. That would mean a contract newer than this code, and a
+record displayed with a guessed status would be worse than no record at all: the entire
+value of the page is that its numbers are the ledger's, not ours.
+[../test/registry.test.ts](../test/registry.test.ts) pins both the conversions and the
+refusals.
+
+Two callers use the read path, for different reasons:
+
+| Caller | Why |
+|---|---|
+| `GET /api/loans/[id]/registry` | Shows the borrower the ledger's own answer, next to ours |
+| `advanceRecordExists`, in the record submit route | Tells a retried `open` that failed with `AlreadyExists` — the state we wanted — apart from a submission that failed for some other reason |
+
+Both treat "could not read" as exactly that. A false or null answer never causes anything
+to be written down as recorded, and never tells a borrower their record is absent.
+
 ## Build and test
 
 ```bash
@@ -177,15 +201,14 @@ Deploying a fresh instance: [../scripts/deploy-registry.sh](../scripts/deploy-re
 
 ## What is still missing
 
-The write path is complete, end to end: the server builds and verifies both transactions,
-and the UI offers them — after payout in `BorrowFlow`, and later from `LoansList`, which
-also offers `mark_repaid` on a repaid advance. What is not:
+Write and read are both wired: the server builds and verifies `open` and `mark_repaid`, the
+UI offers them, and `GET /api/loans/[id]/registry` reads the record back off the chain via
+`get` — see [Reading the record back](#reading-the-record-back). What is not:
 
-1. **A read path.** `get`, `list`, `count` and `is_overdue` are not called from anywhere —
-   there is no `GET` under `/api/loans/[id]/registry/`. What the borrower sees is our
-   cached `registry_tx` flag, not the record itself, which is most of the point of having
-   it. Until that exists, the contract proves the advance to a *third party* but not yet
-   to the borrower in our own UI.
+1. **`list`, `count` and `is_overdue` are still uncalled.** We read one record at a time,
+   by a key we derived ourselves. Nothing enumerates a borrower's history from the chain,
+   which is what those three exist for — a borrower who lost our database rows could not
+   yet rebuild their history from the ledger through our UI.
 2. **Nothing reconciles the cache against the chain.** `registry_tx` is written when we
    submit and never re-checked. A record opened outside our UI, or a row lost in a restore,
    would leave the two disagreeing with no keeper to notice — unlike loans, which

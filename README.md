@@ -17,6 +17,43 @@ them, and no private key ever reaches this application.
 > See [docs/BUSINESS-MODEL.md](docs/BUSINESS-MODEL.md) for who it is for and what would have
 > to be true to run it for real.
 
+**Live demo:** https://stellend-cyan.vercel.app · **Registry contract:** [`CC2F5JAI…NOVWQF`](https://stellar.expert/explorer/testnet/contract/CC2F5JAI2REPM4CMKLSI3EMFBNHVMPOEVY7GARSCHTNHEOL536NOVWQF) · all ids in [Deployed artifacts](#deployed-artifacts)
+
+## Why Stellend
+
+**The problem.** Two people in the same country have opposite problems and no product
+between them.
+
+- *"I have crypto, I need lira this month, I don't want to sell."* Selling means realising
+  the gain, paying an exchange fee and leaving the position. A bank loan needs a credit file
+  and takes days.
+- *"I have lira, and lira loses value."* A deposit account's real return is usually
+  negative, and getting dollar exposure plus a yield means opening a foreign account or
+  learning DeFi.
+
+**Who it is for.**
+
+| | Borrower | Lender |
+|---|---|---|
+| Holds | $2k–$50k of crypto | 5,000–250,000 TRY of savings |
+| Wants | 5,000–50,000 TRY for a month or two, repaid from salary or business income | Dollar exposure plus yield |
+| Cares most about | Keeping the position | "Can I get it back" |
+
+Not for: traders who want leverage, people without crypto (there is no unsecured lending),
+or institutions (no custody, no reporting, no legal wrapper).
+
+**Why it is worth solving.** Turkey has one of the highest crypto-ownership rates in the
+world, largely because of the second problem, yet the path from that crypto back into lira
+is either a taxable sale or a custodial loan.
+
+**Value proposition.** Cash today without selling, and dollar yield on lira savings, from
+one Blend pool. The borrower's lira is the lender's lira. Unlike a licensed exchange's
+crypto loan, it is **non-custodial**: keys stay in the user's wallet and we hold neither
+keys nor funds. That, plus composability with an existing Stellar lending market, is the
+advantage. It is not price or convenience, and it matters to a specific, small group
+rather than the mass market. Who pays for it and what has to be true for it to work:
+[docs/BUSINESS-MODEL.md](docs/BUSINESS-MODEL.md).
+
 ## How a cash advance works
 
 Four signed transactions and one bank transfer. The order matters: nothing touches the chain
@@ -131,6 +168,44 @@ Also: the session cookie is AES-256-GCM encrypted (it carries the anchor's beare
 production refuses to start with a placeholder `SESSION_COOKIE_SECRET`, and
 [proxy.ts](proxy.ts) applies origin checks and rate limits to every API route.
 
+## Key design decisions and trade-offs
+
+| Decision | Why | What it costs |
+|---|---|---|
+| **Non-custodial: the server only builds unsigned XDR, the wallet signs** | Custody is the line between a protocol and a regulated business, and a server key is a target | Every advance is several wallet signatures, so the flow is longer than a custodial one |
+| **Reuse Blend v2 rather than write a lending protocol** | The yield and the credit already exist and are audited; the missing piece was the lira edge | We inherit Blend's parameters and its liquidation model |
+| **Anchor via SEP-6 (API-first), not SEP-24 (hosted)** | We own the UI end to end and can resume a half-finished flow | We must build the quote/withdraw screens ourselves; SEP-12 KYC is not implemented |
+| **The chain is authoritative, Supabase is a cache** | A database we control should never be the only record of a debt | Reconciliation code (`staleLoanIds`, the repay route reading the pool) |
+| **Amounts come from the server's reserved intent, and every signed tx is decoded and checked** | A wallet can only spend its own funds, but a client can misreport what it spent | An extra decode-and-verify step on every submission ([lib/txguard.ts](lib/txguard.ts)) |
+| **A registry contract with no admin key** | Nothing for us to abuse and no key to lose; the borrower signs their own record | It cannot correct a bad record. There is no `void` (see [Known limitations](#known-limitations)) |
+| **The registry stores a hash of the IBAN, not the IBAN** | An IBAN is personal data and does not belong on a public ledger | A borrower must keep the original to prove which payout a record covers |
+| **The registry never holds funds and never enforces `due_at`** | Blend is a perpetual market; nothing on Stellar can force a position to close on a date | The date is a signed commitment, not a deadline, and the UI says so |
+| **Recording on the registry is optional and never gates the advance** | The moment a receipt gates something it stops being a receipt | Some advances will have no on-chain record |
+| **Mock anchor and no KYC on testnet** | There is no production TRY anchor on Stellar | The fiat leg is a demonstration, not a service |
+
+## Technical challenges
+
+- **Soroban state archival.** Blend's ledger entries expire, and a borrow simulation then
+  fails with expired footprints. The flow detects this, hands the wallet a restore
+  transaction to sign, and re-prepares the borrow. Without it the borrow flow silently
+  stops working after a while.
+- **A resumable multi-transaction flow.** An advance is several signatures plus a bank
+  transfer. If the browser dies between "borrowed the USDC" and "paid it to the anchor",
+  the user has debt and no cash. `/api/loans/borrow/resume` reports the exact step reached
+  and the UI picks it up from there.
+- **Not trusting our own client.** See the security model: amounts are taken from the
+  server's reserved intent and each signed transaction is checked against it before it is
+  submitted.
+- **Identity across two systems.** The session must name the same account the anchor's
+  SEP-10 token names, or a valid challenge signed with your own key could open a session
+  for someone else's account ([lib/sep10.ts](lib/sep10.ts)).
+- **Being honest about a perpetual market.** Users expect a loan to have a term; Blend has
+  none. Rather than fake one, the UI shows what is owed now, what today's interest costs
+  and how far collateral can fall before liquidation, all read live from the pool.
+- **Testnet flakiness.** The public RPC occasionally returns 502s. We do not retry
+  transparently, but because the flow is resumable a failed step is recoverable by
+  running it again rather than fatal.
+
 ## The advance registry contract
 
 `contracts/advance-registry` is the one contract we wrote ourselves ([source](contracts/advance-registry/src/lib.rs)).
@@ -181,8 +256,14 @@ which also offers `mark_repaid` once an advance is repaid. Declining costs the b
 nothing and `borrowStage` never looks at it — the moment a receipt gates something, it
 stops being a receipt.
 
-Still missing: nothing *reads* the contract. `get`, `list` and `count` are uncalled, so a
-borrower sees our cached "recorded" flag rather than the chain itself.
+The borrower can also read it back: `GET /api/loans/[id]/registry` simulates the contract's
+own `get`, and the advances list shows the ledger's answer next to ours — including when
+the two disagree, where it says plainly that the chain is the one to trust. A record that
+cannot be read is reported as unreadable, never as absent.
+
+Still missing: `list` and `count` are uncalled, so a borrower cannot yet rebuild their
+whole history from the ledger through our UI — only one record at a time, by a key we
+derived.
 
 Build, test and deploy it:
 

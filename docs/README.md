@@ -26,8 +26,8 @@ design for *how* it gets wired in, and what the registry is allowed to be believ
 **"What are we building next, and why that?"**
 → [PRD.md](PRD.md). The Phase 0 → Phase 1 scope call, framed around what a licensed partner
 will ask.
-→ [EPICS-AND-STORIES.md](EPICS-AND-STORIES.md) turns that call into an ordered backlog with
-acceptance criteria, and records where the PRD's picture of the code has gone stale.
+→ [EPICS-AND-STORIES.md](EPICS-AND-STORIES.md) is the submission-day ship list: what shipped,
+what was deliberately cut and why, and the deferred backlog for after the deadline.
 
 **"Why Blend? Why no loan term? Is there really no TRY anchor?"**
 → [ECOSYSTEM.md](ECOSYSTEM.md). What we depend on in the Stellar ecosystem, what it
@@ -57,8 +57,9 @@ with a recommendation, unit economics, and what has to be true for any of it to 
 
 Gaps the docs name rather than paper over:
 
-- **The registry has no read path.** `get`, `list`, `count` and `is_overdue` are called
-  from nowhere, so a borrower cannot see the record that exists for their benefit
+- **The registry reads one record at a time.** `get` is wired, so a borrower can see the
+  ledger's own answer for an advance; `list` and `count` are not, so their history cannot
+  be rebuilt from the chain alone
   ([CONTRACT-ADVANCE-REGISTRY.md](CONTRACT-ADVANCE-REGISTRY.md#what-is-still-missing)).
 - **Nothing reconciles `registry_tx` against the chain.** It is written on submit and never
   re-checked; loans get a keeper, registry records do not

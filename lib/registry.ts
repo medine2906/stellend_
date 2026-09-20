@@ -173,3 +173,87 @@ export async function advanceRecordExists(borrower: string, withdrawalId: string
   ]);
   return result.ok;
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Reading the record back
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** An advance as the contract holds it, in the units a UI can display. */
+export interface AdvanceRecord {
+  borrower: string;
+  /** Converted back from stroops / minor units, so these compare directly with our rows. */
+  usdcAmount: number;
+  tryAmount: number;
+  /** Hex, for a borrower who wants to recompute it from their own anchor ref and IBAN. */
+  payoutRef: string;
+  openedAt: string;
+  dueAt: string;
+  status: "open" | "repaid";
+}
+
+function toBigInt(value: unknown): bigint | null {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return BigInt(Math.trunc(value));
+  if (typeof value === "string" && /^-?\d+$/.test(value)) return BigInt(value);
+  return null;
+}
+
+function toHex(value: unknown): string | null {
+  if (value instanceof Uint8Array) return Buffer.from(value).toString("hex");
+  if (typeof value === "string") return value;
+  return null;
+}
+
+function secondsToIso(seconds: bigint): string {
+  return new Date(Number(seconds) * 1000).toISOString();
+}
+
+/**
+ * Decodes the `Advance` struct a simulated `get` returns.
+ *
+ * Exported for its own tests, and written defensively on purpose: this is the one place
+ * where a value the contract owns crosses into our types. A shape we do not recognise
+ * returns null — a record shown with a wrong number would be worse than no record, because
+ * the whole point of this page is that the chain disagrees with nobody.
+ */
+export function decodeAdvance(value: unknown): AdvanceRecord | null {
+  if (typeof value !== "object" || value === null) return null;
+  const raw = value as Record<string, unknown>;
+
+  const usdc = toBigInt(raw.usdc_amount);
+  const tryAmt = toBigInt(raw.try_amount);
+  const openedAt = toBigInt(raw.opened_at);
+  const dueAt = toBigInt(raw.due_at);
+  const payoutRef = toHex(raw.payout_ref);
+  const status = toBigInt(raw.status);
+
+  if (usdc == null || tryAmt == null || openedAt == null || dueAt == null) return null;
+  if (payoutRef == null || typeof raw.borrower !== "string") return null;
+  // Status is a unit enum with explicit discriminants, so it arrives as 0 or 1. Anything
+  // else means a contract newer than this code, and guessing at it would be a lie.
+  if (status !== 0n && status !== 1n) return null;
+
+  return {
+    borrower: raw.borrower,
+    usdcAmount: Number(usdc) / 10 ** 7,
+    tryAmount: Number(tryAmt) / 100,
+    payoutRef,
+    openedAt: secondsToIso(openedAt),
+    dueAt: secondsToIso(dueAt),
+    status: status === 0n ? "open" : "repaid",
+  };
+}
+
+/**
+ * The record as the chain holds it, or null when it cannot be confirmed right now.
+ *
+ * Null is never proof of absence — an archived entry or an RPC that cannot answer lands
+ * here too. Callers must present it as "could not read", not as "you never signed one".
+ */
+export async function readAdvanceRecord(borrower: string, withdrawalId: string): Promise<AdvanceRecord | null> {
+  const result = await tryReadContract(getRegistryId(), "get", [
+    xdr.ScVal.scvAddress(Address.fromString(borrower).toScAddress()),
+    bufToScVal(advanceId(withdrawalId)),
+  ]);
+  return result.ok ? decodeAdvance(result.value) : null;
+}
