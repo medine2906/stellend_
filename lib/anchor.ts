@@ -62,6 +62,18 @@ export async function getAnchorConfig(): Promise<AnchorConfig> {
   }
 }
 
+/** Reads the body once so an empty or non-JSON reply says what the anchor actually sent. */
+async function anchorJson<T>(res: Response, label: string): Promise<T> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(
+      `Anchor ${label} returned a non-JSON body (${res.status}, ${res.headers.get("content-type") ?? "no content-type"}): ${text.slice(0, 200) || "<empty>"}`,
+    );
+  }
+}
+
 export interface Sep10ChallengeResponse {
   transaction: string;
   network_passphrase: string;
@@ -77,7 +89,7 @@ export async function requestSep10Challenge(account: string): Promise<Sep10Chall
   if (!res.ok) {
     throw new Error(`Anchor SEP-10 challenge failed: ${res.status} ${await res.text()}`);
   }
-  return res.json();
+  return anchorJson<Sep10ChallengeResponse>(res, "SEP-10 challenge");
 }
 
 export interface Sep10TokenResponse {
@@ -96,7 +108,7 @@ export async function submitSep10Challenge(signedTransactionXdr: string): Promis
   if (!res.ok) {
     throw new Error(`Anchor SEP-10 token exchange failed: ${res.status} ${await res.text()}`);
   }
-  return res.json();
+  return anchorJson<Sep10TokenResponse>(res, "SEP-10 token exchange");
 }
 
 function authHeaders(jwt: string): HeadersInit {

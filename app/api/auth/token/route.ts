@@ -39,7 +39,17 @@ export async function POST(req: NextRequest) {
     throw err;
   }
 
-  await setSessionCookie({ jwt, publicKey });
+  try {
+    await setSessionCookie({ jwt, publicKey });
+  } catch (err) {
+    // Typically a missing or too-short SESSION_COOKIE_SECRET in production. Without this the
+    // route dies with an empty 500 and the browser reports "Unexpected end of JSON input".
+    console.error("[auth] failed to set session cookie", err);
+    return NextResponse.json(
+      { error: getErrorMessage(err, "Could not start a session (server misconfigured)") },
+      { status: 500 },
+    );
+  }
 
   let profileSynced = true;
   try {
