@@ -1,0 +1,30 @@
+# Stellend
+
+> Turkish lira in and out of a Stellar lending pool, non-custodially. Borrowers lock a
+> Soroban asset and borrow USDC from a Blend v2 pool, and the anchor pays TRY to their
+> IBAN. Lenders send TRY by bank transfer, which the anchor converts to USDC and supplies
+> to the same pool. Stellar TESTNET proof of concept only: mock TRY anchor, Blend testnet
+> pool, never mainnet.
+
+## Start here
+
+- [Live app](https://stellend-jow5cyrhg-medine1729s-projects.vercel.app/dashboard): testnet deployment (per-deployment Vercel URL; also https://stellend-cyan.vercel.app)
+- [Live status and deployed ids (JSON)](/api/health): commit, dependency checks, contract ids
+- [AGENTS.md](https://github.com/medine2906/stellend_/blob/main/AGENTS.md): rules for working in this repo, commands, definition of done
+- [README](https://github.com/medine2906/stellend_/blob/main/README.md): product, flows, limits, deployed artifacts
+- [Docs index](https://github.com/medine2906/stellend_/blob/main/docs/README.md): architecture, API, data model, PRD
+
+## Facts that do not change
+
+- No server-held keys: the server prepares unsigned XDR, the user's wallet signs, the server verifies and submits.
+- The chain is authoritative; Supabase is a cache (except the borrow intent row).
+- Amounts and identity never come from the client: identity from the SEP-10 session, amounts from the server's reserved intent.
+- The advance registry (our Soroban contract) is optional, has no admin key, and is never a gate.
+- `due_at` is a signed target date, not an enforced deadline; a Blend position is perpetual, not a term loan.
+- Standards used: SEP-10, SEP-6, SEP-38. SEP-12 KYC is deliberately not implemented.
+
+## Optional
+
+- [API routes](https://github.com/medine2906/stellend_/blob/main/docs/API.md)
+- [Registry contract](https://github.com/medine2906/stellend_/blob/main/docs/CONTRACT-ADVANCE-REGISTRY.md)
+- [Why Blend, no fixed term, no production anchor](https://github.com/medine2906/stellend_/blob/main/docs/ECOSYSTEM.md)

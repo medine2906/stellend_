@@ -14,6 +14,12 @@ Read this file first, then [README.md](README.md) (product, flows, limits) and
 [docs/README.md](docs/README.md) (index of deeper docs). This file holds the rules and
 commands; the README holds the reasoning. If they conflict, the code wins, then this file.
 
+Live deployment: `GET /api/health` (commit, dependency checks, contract ids) and `/llms.txt`
+(static summary and links) on https://stellend-cyan.vercel.app. Check them before assuming
+what is deployed; this file holds the rules, they hold the current state. Other deployment:
+https://stellend-jow5cyrhg-medine1729s-projects.vercel.app (app at `/dashboard`); a
+per-deployment Vercel URL, so it can go stale or sit behind Vercel auth.
+
 ## What this project is
 
 Turkish lira in and out of a Stellar lending pool, non-custodially.

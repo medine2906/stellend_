@@ -205,6 +205,14 @@ before marking anything repaid.
 
 ## Operations
 
+### `GET /api/health` *(public)*
+
+Live status for humans and AI agents: deployed commit (`VERCEL_GIT_COMMIT_SHA`), links to
+the rules and docs, reachability of the Soroban RPC and the anchor's `stellar.toml`, and
+the configured contract ids. Reports a dead dependency as `false`, never as an error, and
+exposes no secret. A static summary for agents is served at `/llms.txt`
+([../public/llms.txt](../public/llms.txt)).
+
 ### `POST /api/keeper/sync-loans`
 
 Called by a scheduler with `Authorization: Bearer $CRON_SECRET`; `proxy.ts` exempts
