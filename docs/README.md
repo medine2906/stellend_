@@ -19,7 +19,7 @@ special, and how to apply the schema safely.
 **"What's this Rust directory?"**
 → [CONTRACT-ADVANCE-REGISTRY.md](CONTRACT-ADVANCE-REGISTRY.md). Reference for the Soroban
 contract that gives the borrower an independent copy of their own record: functions,
-errors, storage, and what it deliberately refuses to do. Not yet wired in.
+errors, storage, and what it deliberately refuses to do.
 → [ARCHITECTURE-advance-registry.md](ARCHITECTURE-advance-registry.md) is the companion
 design for *how* it gets wired in, and what the registry is allowed to be believed about.
 

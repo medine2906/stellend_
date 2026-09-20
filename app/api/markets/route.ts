@@ -30,7 +30,9 @@ export async function GET() {
       oraclePrice: oracle?.getPriceFloat(id) ?? null, ledger: reserve.latestLedger,
       fetchedAt: new Date().toISOString(), rateCurve,
     }] }, { headers: { "Cache-Control": "no-store" } });
-  } catch {
+  } catch (err) {
+    // The response is deliberately generic; the cause (RPC 429/502, missing env, SDK shape) goes to the server log.
+    console.error("[markets] failed to load live market data", err);
     return NextResponse.json({ error: "Live market data is temporarily unavailable. Please try again." }, { status: 503 });
   }
 }

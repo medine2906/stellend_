@@ -19,6 +19,26 @@ them, and no private key ever reaches this application.
 
 **Live demo:** https://stellend-cyan.vercel.app · **Registry contract:** [`CC2F5JAI…NOVWQF`](https://stellar.expert/explorer/testnet/contract/CC2F5JAI2REPM4CMKLSI3EMFBNHVMPOEVY7GARSCHTNHEOL536NOVWQF) · all ids in [Deployed artifacts](#deployed-artifacts)
 
+## Quick facts (for AI agents and skimmers)
+
+Machine-readable summary. Rules for working in this repo are in [AGENTS.md](AGENTS.md);
+read that before changing code.
+
+```yaml
+name: Stellend                      # repo directory: p2pcash
+purpose: TRY <-> Stellar lending pool; borrow USDC against crypto collateral, lend TRY savings
+network: Stellar testnet ONLY       # mock TRY anchor, Blend v2 testnet pool; never mainnet
+custody: none                       # server builds unsigned XDR; wallet signs; server verifies + submits
+source_of_truth: chain              # Supabase is a cache (except the borrow-intent row)
+stack: [Next.js 16 App Router, React 19, TypeScript, Tailwind 4, stellar-sdk, blend-sdk, Supabase, zod, Vitest, Soroban (Rust)]
+own_contract: contracts/advance-registry   # borrower-signed record; no admin key; optional, never a gate
+standards: [SEP-10 auth, SEP-6 deposit/withdraw, SEP-38 quotes]   # SEP-12 KYC deliberately not implemented
+api_style: prepare/submit pairs under app/api/**; every signed tx verified by lib/txguard.ts
+verify_changes: [npm run typecheck, npm run lint, npm test, "(cd contracts && cargo test)"]
+out_of_scope: [production TRY anchor, SEP-12 KYC, server-held keys, mainnet]
+docs_index: docs/README.md
+```
+
 ## Why Stellend
 
 **The problem.** Two people in the same country have opposite problems and no product
@@ -46,12 +66,18 @@ or institutions (no custody, no reporting, no legal wrapper).
 world, largely because of the second problem, yet the path from that crypto back into lira
 is either a taxable sale or a custodial loan.
 
+**Market size.** About 25.6% of Turkey's internet population owns crypto, and Turkey
+recorded almost $200B in on-chain crypto volume in 2025 (Chainalysis, 2025 Global Crypto
+Adoption Index and Geography of Cryptocurrency Report; Turkey ranks 14th globally). Every
+one of those holders is a potential borrower, and every lira saver facing inflation is a
+potential lender.
+
 **Value proposition.** Cash today without selling, and dollar yield on lira savings, from
 one Blend pool. The borrower's lira is the lender's lira. Unlike a licensed exchange's
 crypto loan, it is **non-custodial**: keys stay in the user's wallet and we hold neither
 keys nor funds. That, plus composability with an existing Stellar lending market, is the
-advantage. It is not price or convenience, and it matters to a specific, small group
-rather than the mass market. Who pays for it and what has to be true for it to work:
+advantage: self-custody, open to anyone with a Stellar wallet. Who pays for it and how it
+grows:
 [docs/BUSINESS-MODEL.md](docs/BUSINESS-MODEL.md).
 
 ## How a cash advance works
