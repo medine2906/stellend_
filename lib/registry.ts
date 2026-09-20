@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash } from "crypto";
 import { Address, Contract, xdr } from "@stellar/stellar-sdk";
-import { prepareSorobanTransaction } from "./blend";
+import { prepareSorobanTransaction, tryReadContract } from "./blend";
 import { normalizeIban } from "./iban";
 import { env } from "./env";
 import type { WithdrawalRow } from "./database.types";
@@ -153,4 +153,23 @@ export async function buildMarkRepaidTransaction(account: string, withdrawalId: 
     bufToScVal(id),
   );
   return prepareSorobanTransaction(account, operation as unknown as xdr.Operation);
+}
+
+/**
+ * Whether this borrower already has this advance recorded on chain.
+ *
+ * Used for one thing: reading a failed submission. A retried `open` fails inside the
+ * contract with AlreadyExists, which is the state we wanted all along, and this is how the
+ * submit route tells that apart from a submission that failed for some other reason.
+ *
+ * False means "not confirmed", never "definitely absent" — an archived entry or an RPC that
+ * cannot answer lands here too — so a false answer only ever leaves the original failure in
+ * place, and never causes anything to be written down as recorded.
+ */
+export async function advanceRecordExists(borrower: string, withdrawalId: string): Promise<boolean> {
+  const result = await tryReadContract(getRegistryId(), "get", [
+    xdr.ScVal.scvAddress(Address.fromString(borrower).toScAddress()),
+    bufToScVal(advanceId(withdrawalId)),
+  ]);
+  return result.ok;
 }

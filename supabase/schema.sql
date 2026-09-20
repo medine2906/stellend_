@@ -84,6 +84,10 @@ alter table withdrawals add column if not exists payout_tx text;
 -- The chain is authoritative; these columns only speed up the UI.
 alter table withdrawals add column if not exists advance_id text;     -- hex sha256 of the borrow intent
 alter table withdrawals add column if not exists registry_tx text;    -- hash of the open() transaction
+-- Set when the record is known to be on chain but its transaction hash is not: a retry
+-- of a record that already landed fails in the contract, and the hash belongs to the first
+-- attempt, which we never saw.
+alter table withdrawals add column if not exists registry_recorded_at timestamptz;
 alter table loans       add column if not exists registry_closed_tx text; -- hash of the mark_repaid() transaction
 
 create table if not exists transactions_log (

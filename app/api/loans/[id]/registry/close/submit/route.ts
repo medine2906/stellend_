@@ -34,6 +34,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       .select("id")
       .eq("loan_id", loanId)
       .eq("borrower_id", borrowerId)
+      // Oldest first and one row only: nothing stops a loan carrying more than one
+      // withdrawal row, and maybeSingle would throw rather than pick the advance it began as.
+      .order("created_at", { ascending: true })
+      .limit(1)
       .maybeSingle();
     if (error) throw error;
     if (!withdrawal) {

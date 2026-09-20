@@ -189,6 +189,34 @@ async function simulateContractCall(contractId: string, method: string, sourceAc
   return scValToNative(sim.result!.retval);
 }
 
+/**
+ * Simulates a read-only contract call that takes arguments, reporting failure instead of
+ * throwing. A contract error is a legitimate answer to a question like "is this record
+ * there?" — NotFound from the advance registry is not a fault — and an exception gives the
+ * caller no way to tell that apart from an RPC that could not answer at all.
+ *
+ * `ok: false` therefore means "could not confirm", never "definitely absent": an archived
+ * entry or an unreachable RPC lands here too. Callers must not read it as proof of absence.
+ */
+export async function tryReadContract(
+  contractId: string,
+  method: string,
+  args: xdr.ScVal[],
+): Promise<{ ok: true; value: unknown } | { ok: false }> {
+  const server = getRpcServer();
+  const tx = new TransactionBuilder(new Account(NULL_ACCOUNT, "0") as unknown as Account, {
+    fee: SOROBAN_FEE,
+    networkPassphrase: STELLAR_NETWORK,
+  })
+    .addOperation(new Contract(contractId).call(method, ...args))
+    .setTimeout(TX_TIMEOUT_SECONDS)
+    .build();
+
+  const sim = await server.simulateTransaction(tx);
+  if (!rpc.Api.isSimulationSuccess(sim) || !sim.result) return { ok: false };
+  return { ok: true, value: scValToNative(sim.result.retval) };
+}
+
 export interface ClassicAsset {
   code: string;
   issuer: string;

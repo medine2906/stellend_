@@ -73,16 +73,22 @@ export async function GET() {
     // no relationships, so an embed comes back untyped.
     // The withdrawal id travels with the loan because the registry key is derived from it,
     // not from the loan id — without it the UI cannot offer to sign a record after the fact.
-    const receipts = new Map<string, { withdrawalId: string; registryTx: string | null }>();
+    const receipts = new Map<string, { withdrawalId: string; registryTx: string | null; registryRecordedAt: string | null }>();
     const loanIds = (loans ?? []).map((l) => l.id);
     if (loanIds.length > 0) {
       const { data: withdrawals, error: receiptsError } = await supabase
         .from("withdrawals")
-        .select("id, loan_id, registry_tx")
+        .select("id, loan_id, registry_tx, registry_recorded_at")
         .in("loan_id", loanIds);
       if (receiptsError) throw receiptsError;
       for (const w of withdrawals ?? []) {
-        if (w.loan_id) receipts.set(w.loan_id, { withdrawalId: w.id, registryTx: w.registry_tx });
+        if (w.loan_id) {
+          receipts.set(w.loan_id, {
+            withdrawalId: w.id,
+            registryTx: w.registry_tx,
+            registryRecordedAt: w.registry_recorded_at,
+          });
+        }
       }
     }
 
@@ -91,7 +97,9 @@ export async function GET() {
       return {
         ...loan,
         withdrawalId: receipt?.withdrawalId ?? null,
-        registryRecorded: Boolean(receipt?.registryTx),
+        // A healed retry has no hash to link to, so the timestamp is the only thing saying the
+        // record is there. Either one means there is nothing left to sign.
+        registryRecorded: Boolean(receipt?.registryTx || receipt?.registryRecordedAt),
       };
     });
 

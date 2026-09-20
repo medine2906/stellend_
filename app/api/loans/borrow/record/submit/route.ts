@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { loadWithdrawalIntent } from "@/lib/borrowIntent";
-import { advanceId, payoutRef, usdcToStroops, tryToMinorUnits, registryEnabled } from "@/lib/registry";
+import {
+  advanceId,
+  advanceRecordExists,
+  payoutRef,
+  registryEnabled,
+  tryToMinorUnits,
+  usdcToStroops,
+} from "@/lib/registry";
 import { submitSignedTransaction } from "@/lib/blend";
 import { requireEnv } from "@/lib/env";
 import { getSupabaseServiceClient } from "@/lib/supabase";
@@ -65,11 +72,27 @@ export async function POST(req: NextRequest) {
       dueAtSec,
     });
 
-    const { hash } = await submitSignedTransaction(signedXdr);
+    let hash: string;
+    try {
+      ({ hash } = await submitSignedTransaction(signedXdr));
+    } catch (err) {
+      // A retry of a record that already landed fails inside the contract with
+      // AlreadyExists — which is the state we wanted. Confirm that against the chain and
+      // write down the fact; the transaction hash belongs to the attempt that succeeded
+      // without us, so there is none to cache. Any other failure is still a failure.
+      if (!(await advanceRecordExists(session.publicKey, withdrawalId))) throw err;
 
-    // Cache the result. AlreadyExists on a retry would not reach here (it would throw
-    // before submit), but if it did, the guard would have accepted it, so the hash
-    // update is correct either way.
+      const { error: healError } = await getSupabaseServiceClient()
+        .from("withdrawals")
+        .update({ advance_id: id.toString("hex"), registry_recorded_at: new Date().toISOString() })
+        .eq("id", withdrawalId);
+      if (healError) throw healError;
+
+      await audit("registry_open_submitted", session.publicKey, "ok", { withdrawalId, alreadyRecorded: true });
+      return NextResponse.json({ alreadyRecorded: true });
+    }
+
+    // Cache the result. The chain is the record; this row only makes the UI fast.
     const { error: updateErr } = await getSupabaseServiceClient()
       .from("withdrawals")
       .update({

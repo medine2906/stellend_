@@ -41,6 +41,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Either column means the record is on chain; a second one cannot be written under the
+    // same id, so there is nothing to sign.
+    if (intent.registry_tx || intent.registry_recorded_at) {
+      return NextResponse.json({ error: "This advance is already recorded on-chain" }, { status: 409 });
+    }
+
     // Fetch due_at from the loan row so the on-chain value always matches what the UI shows.
     if (!intent.loan_id) {
       return NextResponse.json({ error: "This advance has no associated loan record" }, { status: 409 });
@@ -56,6 +62,19 @@ export async function POST(req: NextRequest) {
     }
 
     const dueAtUnix = Math.floor(new Date(loan.due_at).getTime() / 1000);
+
+    // The contract stores a commitment, so it refuses a date that is not ahead of the
+    // ledger. An advance whose target date has already gone by can never be recorded;
+    // saying that here beats inviting a signature that fails with a bare contract error.
+    if (dueAtUnix <= Math.floor(Date.now() / 1000)) {
+      return NextResponse.json(
+        {
+          error:
+            "The target close date on this advance has already passed, so it can no longer be recorded on-chain",
+        },
+        { status: 409 },
+      );
+    }
 
     const unsignedXdr = await buildOpenTransaction(session.publicKey, intent, dueAtUnix);
     return NextResponse.json({ unsignedXdr });

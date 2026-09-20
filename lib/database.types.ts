@@ -68,6 +68,8 @@ export type WithdrawalRow = {
    *  registry_tx is the hash of the open() transaction. */
   advance_id: string | null;
   registry_tx: string | null;
+  /** Set when the record is on chain but its transaction hash is unknown (a healed retry). */
+  registry_recorded_at: string | null;
 };
 
 export type SandboxSpendRow = {
